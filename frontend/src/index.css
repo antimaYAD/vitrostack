@@ -1,0 +1,37 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; }
+  body { @apply bg-slate-50 text-[#1d1d1f] dark:bg-black dark:text-[#f5f5f7]; font-feature-settings: "cv11", "ss01"; letter-spacing: -0.01em; }
+  h1, h2, h3 { letter-spacing: -0.022em; }
+  ::selection { @apply bg-brand-200 text-brand-950; }
+  :focus-visible { outline: none; }
+}
+
+@layer components {
+  .glass-nav { @apply bg-white/70 backdrop-blur-2xl backdrop-saturate-[1.8] dark:bg-[#161617]/75; }
+  .eyebrow { @apply text-[13px] font-semibold tracking-normal text-[#bf4800] dark:text-[#ff9f0a]; }
+  .link { @apply text-brand-700 hover:underline dark:text-brand-400; }
+
+  .prose-chat { @apply text-[15px] leading-[1.55] text-slate-700 dark:text-slate-300; }
+  .prose-chat p { @apply my-2.5 first:mt-0 last:mb-0; }
+  .prose-chat strong { @apply font-semibold text-[#1d1d1f] dark:text-white; }
+  .prose-chat ul { @apply my-2 list-disc space-y-1 pl-5; }
+  .prose-chat ol { @apply my-2 list-decimal space-y-1 pl-5; }
+  .prose-chat em { @apply text-slate-500 dark:text-slate-400; }
+  .prose-chat code { @apply rounded-md bg-slate-100 px-1.5 py-0.5 font-mono text-xs dark:bg-slate-800; }
+  .prose-chat a { @apply text-brand-700 dark:text-brand-400; }
+
+  .table-base { @apply w-full text-left text-sm; }
+  .table-base th { @apply whitespace-nowrap border-b border-slate-200/70 px-5 py-3 text-xs font-medium text-slate-500 dark:border-slate-800 dark:text-slate-400; }
+  .table-base td { @apply border-b border-slate-100 px-5 py-3.5 text-slate-700 dark:border-slate-800/80 dark:text-slate-300; }
+  .table-base tbody tr:last-child td { @apply border-b-0; }
+  .scrollbar-thin { scrollbar-width: thin; }
+}
+
+@media print {
+  aside, header, nav, .no-print { display: none !important; }
+  main { padding-top: 0 !important; }
+}
