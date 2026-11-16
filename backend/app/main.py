@@ -13,9 +13,8 @@ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
-from .api import public, router  # noqa: E402
+from .api import routers  # noqa: E402
 from .auth import seed_users  # noqa: E402
-from .auth_api import public as auth_public, users as users_router  # noqa: E402
 from .db import init_db  # noqa: E402
 from .seed import seed  # noqa: E402
 from .services import NotFound  # noqa: E402
@@ -46,7 +45,7 @@ async def not_found(_: Request, exc: NotFound):
     return JSONResponse(status_code=404, content={"detail": str(exc)})
 
 
-for r in (auth_public, users_router, public, router):
+for r in routers:
     app.include_router(r)
 
 # Serve the built frontend (npm run build) from the same origin in production.
