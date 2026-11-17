@@ -28,8 +28,8 @@ Demo data (4 projects and an offcut inventory) is seeded on first launch. Delete
 
 | Role | Can do |
 |---|---|
-| **Admin** | Everything, plus **Admin → Pricing**, **Admin → Users** (add, change role, reset password, deactivate, delete) and deleting projects |
-| **Estimator** | Overview, Copilot, Projects, Engineering tools, Offcuts, Site Ops. No admin area |
+| **Admin** | Everything, plus **Admin → Pricing**, **Admin → Users** (add, change role, reset password, deactivate, delete), deleting projects, and adding offcuts (by hand or by saving a cutting plan's remnants) |
+| **Estimator** | Overview, Copilot, Projects, Designer, Engineering tools, Offcuts (view only), Site Ops. No admin area |
 
 Anyone can **create an account** at `/register`. It creates a new, separate company workspace with that person as admin; colleagues are then added from Admin → Users. Set `ALLOW_SIGNUP=0` to turn self sign-up off.
 
@@ -46,6 +46,7 @@ Run the tests with `cd backend && python -m pytest`.
 |---|---|---|
 | IS 875 (Part 3) wind load | `backend/app/engines/wind.py` | Vb for 60+ cities, k2 terrain/height tables, Kd/Ka/Kc, Cp,net by zone |
 | Glass check | `engines/glass.py` | Four-edge plate stress & deflection, laminated effective thickness, min-safe recommendation |
+| Facade elevations | `engines/facade.py`, `facade_dxf.py` | Net glass sizes, butt-joint / slider support conditions, silicone bite, BOM, DXF (ezdxf) |
 | Structural silicone | `engines/silicone.py` | ASTM C1401 bite, glueline, 600 ml sausage count (DOWSIL 995/993/795) |
 | 2D cutting | `engines/cutting.py` | Multi-heuristic guillotine packing, offcuts first, reusable-remnant tracking |
 | BOM & quote | `engines/costing.py`, `pdf.py` | Jumbo-sheet glass costing, labour, GST, branded PDF (ReportLab) |
@@ -60,6 +61,14 @@ Run the tests with `cd backend && python -m pytest`.
 - **Copilot:** chat with expandable tool-call timelines, an approval card with a live margin preview, schedule drag-and-drop, and suggested follow-ups.
 - **Projects:** a stepper (Schedule → IS 875 → Cutting → Quote) with one contextual "next step" button. Tabs show the pressure derivation, per-pane utilisation bars, interactive SVG cutting patterns, and the BOM/quote.
 - **Engineering tools:** live calculators for wind/glass, silicone, and quick nesting.
+- **Designer** (`/designer`): a react-konva CAD canvas for window and structural-glazing elevations.
+  - Millimetre grid with zoom (wheel), pan (Space or the hand tool) and 1 mm / 5 mm snap. Dimension chains update live.
+  - Add mullions and transoms by clicking. Click a vertical divider to switch between an aluminium mullion and an 8 mm silicone butt joint (optionally backed by a glass fin); drag dividers to move them.
+  - Each pane takes an infill (glass, spandrel or louvre), an operation (fixed, sliding left/right, casement, top-hung, tilt & turn, door), a glass type (10/12 mm toughened, 13.52 laminated toughened, 24 mm DGU) and, for sliders, a 2- or 3-track system.
+  - Panes that fail IS 875 at the design pressure are outlined in red with a warning badge. The pressure can be typed or calculated from the site; opening the designer from a project uses that project's site.
+  - **Add to project** turns the glass panes into schedule rows tagged `W-101/B1-A`, and so on. Panes whose glass differs from the project's spec are added marked for review (or left out); non-glass infills are skipped.
+  - The elevation is kept as parametric JSON (`frontend/src/lib/facade.ts`) and sent to `POST /api/v1/canvas/validate-wind-load`, `/extract-bom` and `/export-dxf`. The JSON can be copied, downloaded and imported.
+  - Elevations save to the shared design library. Rectangular designs from the earlier window designer can be opened from the library and converted; shaped (arched, gable, raked) designs can't.
 - **Offcut inventory** and **Site ops**, which has a WhatsApp phone simulator and an approval queue.
 - Responsive layout, light/dark mode, and a <kbd>Ctrl</kbd>+<kbd>K</kbd> command palette.
 

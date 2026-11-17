@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .. import auth
 from ..db import Offcut, get_db
 from ..engines.glass import parse_glass_spec
 from .deps import org_id, protected_router
@@ -39,7 +40,7 @@ def list_offcuts(db: Session = Depends(get_db), org: str = Depends(org_id)):
     return [_offcut(o) for o in rows]
 
 
-@router.post("/offcuts", status_code=201)
+@router.post("/offcuts", status_code=201, dependencies=[Depends(auth.require_admin)])
 def add_offcut(body: OffcutIn, db: Session = Depends(get_db), org: str = Depends(org_id)):
     spec = parse_glass_spec(body.glass_spec).key
     out = []

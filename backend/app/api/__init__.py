@@ -10,10 +10,12 @@
     whatsapp     WhatsApp webhook (public), simulator, message log
     alerts       site-ops alerts
     pricing      admin: price list and history                      (admin)
+    designs      saved window designs and facade elevations
+    canvas       facade studio: wind-load validation, BOM, DXF export
 """
 from __future__ import annotations
 
-from . import agent, alerts, auth, engineering, inventory, pricing, projects, system, users, whatsapp
+from . import agent, alerts, auth, canvas, designs, engineering, inventory, pricing, projects, system, users, whatsapp
 
 # Registered in the same order as the original single-file layout.
 routers = [
@@ -29,4 +31,6 @@ routers = [
     whatsapp.router,
     alerts.router,
     pricing.router,
+    designs.router,
+    canvas.router,
 ]

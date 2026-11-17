@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import auth, pricing, services
-from ..db import Offcut, Project, get_db
+from ..db import Offcut, Project, WindowDesign, get_db
 from ..engines import costing
 from .deps import org_id, protected_router
 
@@ -97,6 +97,8 @@ def patch_project(pid: str, body: ProjectPatch, db: Session = Depends(get_db), o
 def delete_project(pid: str, db: Session = Depends(get_db), org: str = Depends(org_id)):
     p = services.get_project(db, pid, org)
     services.release_offcuts(db, pid)
+    for d in db.scalars(select(WindowDesign).where(WindowDesign.project_id == pid)).all():
+        d.project_id = None  # keep the design in the library, just unlink it
     db.delete(p)
     db.commit()
 
@@ -158,7 +160,7 @@ def quote_pdf(pid: str, db: Session = Depends(get_db), org: str = Depends(org_id
     return FileResponse(path, media_type="application/pdf", filename=f"VitroStack_Quote_{safe}.pdf")
 
 
-@router.post("/projects/{pid}/remnants")
+@router.post("/projects/{pid}/remnants", dependencies=[Depends(auth.require_admin)])
 def save_remnants(pid: str, db: Session = Depends(get_db), org: str = Depends(org_id)):
     p = services.get_project(db, pid, org)
     if not p.cutting:

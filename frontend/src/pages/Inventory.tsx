@@ -7,6 +7,7 @@ import { cn, inr, num, specLabel, timeAgo, useApi } from "../lib/utils";
 import { Badge, Button, Card, EmptyState, ErrorState, Field, Input, Modal, PageHeader, Segmented, Skeleton, Stat } from "../components/ui";
 import { GlassSelect } from "../components/ProjectForm";
 import { useApp } from "../components/Layout";
+import { useAuth } from "../lib/auth";
 
 function Thumb({ w, h }: { w: number; h: number }) {
   const s = 40 / 3660;
@@ -20,6 +21,7 @@ function Thumb({ w, h }: { w: number; h: number }) {
 export default function Inventory() {
   const { data, error, loading, reload } = useApi<Offcut[]>("/offcuts");
   const { reference } = useApp();
+  const { isAdmin } = useAuth();
   const [spec, setSpec] = useState("all");
   const [status, setStatus] = useState<"available" | "reserved" | "all">("available");
   const [open, setOpen] = useState(false);
@@ -62,7 +64,7 @@ export default function Inventory() {
 
   return (
     <div>
-      <PageHeader title="Offcut inventory" subtitle="Leftover glass the optimizer uses before opening a new jumbo sheet." actions={<Button icon={<Plus className="h-4 w-4" />} onClick={() => setOpen(true)}>Add offcut</Button>} />
+      <PageHeader title="Offcut inventory" subtitle="Leftover glass the optimizer uses before opening a new jumbo sheet." actions={isAdmin ? <Button icon={<Plus className="h-4 w-4" />} onClick={() => setOpen(true)}>Add offcut</Button> : undefined} />
 
       <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
         {loading ? [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-[110px] rounded-xl" />) : (
@@ -83,7 +85,7 @@ export default function Inventory() {
           <Segmented size="sm" value={status} onChange={setStatus} options={[{ value: "available", label: "Available" }, { value: "reserved", label: "Reserved" }, { value: "all", label: "All" }]} />
         </div>
         {data && rows.length === 0 ? (
-          <EmptyState icon={<Boxes className="h-6 w-6" />} title={data.length ? "Nothing matches these filters" : "No offcuts yet"} body="Save remnants from a cutting plan, or add pieces from the factory racks." action={<Button variant="secondary" onClick={() => setOpen(true)}>Add offcut</Button>} />
+          <EmptyState icon={<Boxes className="h-6 w-6" />} title={data.length ? "Nothing matches these filters" : "No offcuts yet"} body={isAdmin ? "Save remnants from a cutting plan, or add pieces from the factory racks." : "Only an admin can add offcuts to the inventory."} action={isAdmin ? <Button variant="secondary" onClick={() => setOpen(true)}>Add offcut</Button> : undefined} />
         ) : (
           <div className="overflow-x-auto">
             <table className="table-base">
@@ -115,7 +117,7 @@ export default function Inventory() {
         )}
       </Card>
 
-      <Modal open={open} onClose={() => setOpen(false)} title="Add offcut" description="Record a usable piece from the factory racks."
+      <Modal open={open && isAdmin} onClose={() => setOpen(false)} title="Add offcut" description="Record a usable piece from the factory racks."
         footer={<><Button variant="secondary" onClick={() => setOpen(false)}>Cancel</Button><Button onClick={add} loading={saving} disabled={!!formErr}>Add to inventory</Button></>}>
         <div className="space-y-4">
           <Field label="Glass" htmlFor="o-g"><GlassSelect id="o-g" value={f.glass_spec} onChange={(v) => setF({ ...f, glass_spec: v })} /></Field>

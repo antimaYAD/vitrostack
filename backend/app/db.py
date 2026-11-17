@@ -174,6 +174,20 @@ class PriceChange(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=now)
 
 
+class WindowDesign(Base):
+    """A window elevation drawn in the designer (frame, shape, mullion layout, opening types)."""
+    __tablename__ = "window_designs"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=uid)
+    organization_id: Mapped[str] = mapped_column(String(64), index=True, default=DEFAULT_ORG)
+    project_id: Mapped[str | None] = mapped_column(String(32), index=True, nullable=True)
+    name: Mapped[str] = mapped_column(String(120))
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
+    summary: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=now)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=now, onupdate=now)
+
+
 class User(Base):
     __tablename__ = "users"
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=uid)
