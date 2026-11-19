@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 from .api import routers  # noqa: E402
-from .auth import seed_users  # noqa: E402
+from .auth import DEMO_MODE, seed_users  # noqa: E402
 from .db import init_db  # noqa: E402
 from .seed import seed  # noqa: E402
 from .services import NotFound  # noqa: E402
@@ -26,7 +26,8 @@ logging.basicConfig(level=logging.INFO)
 async def lifespan(app: FastAPI):
     init_db()
     seed_users()
-    seed()
+    if DEMO_MODE:  # demo projects and offcut stock; a production database starts empty
+        seed()
     yield
 
 

@@ -1,7 +1,8 @@
 import os
 import tempfile
 
-os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(tempfile.mkdtemp(), "t.db")
+# TEST_DATABASE_URL runs the suite against another database (e.g. an empty Postgres).
+os.environ["DATABASE_URL"] = os.getenv("TEST_DATABASE_URL") or "sqlite:///" + os.path.join(tempfile.mkdtemp(), "t.db")
 os.environ["VITRO_STORAGE"] = tempfile.mkdtemp()
 os.environ.pop("GEMINI_API_KEY", None)
 

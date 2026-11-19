@@ -84,6 +84,28 @@ These are screening checks. Final designs need sign-off from a facade engineer.
   and the project shows a "prices changed, re-quote" banner. The built-in
   defaults (`engines/rates.py`) are indicative only.
 
+## Deploy (Docker + PostgreSQL)
+
+The `Dockerfile` builds the React app and serves it from the FastAPI server, so one container is the whole app.
+It listens on `$PORT` (default 8000) and reports health at `/api/v1/health`.
+
+**Own server / local test:**
+
+```bash
+cp .env.production.example .env     # set POSTGRES_PASSWORD, ADMIN_EMAIL, ADMIN_PASSWORD
+docker compose up -d --build        # app + Postgres 16 on http://localhost:8000
+```
+
+Put it behind HTTPS (Caddy, nginx or a load balancer) and keep `COOKIE_SECURE=1`.
+
+**Managed hosts (Render, Railway, Fly.io and similar):** deploy the repo as a Docker web service, add a Postgres
+database, and set these environment variables: `DATABASE_URL` (the host's `postgres://` URL works as is),
+`ADMIN_EMAIL`, `ADMIN_PASSWORD`, `DEMO_MODE=0`, `ALLOW_SIGNUP=0`, `COOKIE_SECURE=1`. No disk is needed: all data is in
+Postgres, and quote PDFs and uploaded schedules are temporary files.
+
+On the first start against an empty database, the app creates the tables and the admin account. Demo projects are
+only seeded when `DEMO_MODE=1`. Run the tests against Postgres with `TEST_DATABASE_URL=postgresql://... pytest`.
+
 ## Production notes
 
 - Multi-tenant: every table carries `organization_id`, taken from the signed-in user's account (never from the client).

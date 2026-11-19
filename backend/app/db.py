@@ -7,10 +7,22 @@ from datetime import datetime, timezone
 from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, TypeDecorator, create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./vitrostack.db")
+def _database_url() -> str:
+    """DATABASE_URL, with the postgres:// / postgresql:// forms hosts hand out mapped to the psycopg 3 driver."""
+    url = os.getenv("DATABASE_URL", "").strip() or "sqlite:///./vitrostack.db"
+    for prefix in ("postgres://", "postgresql://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url[len(prefix):]
+    return url
+
+
+DATABASE_URL = _database_url()
+IS_SQLITE = DATABASE_URL.startswith("sqlite")
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {},
+    connect_args={"check_same_thread": False} if IS_SQLITE else {},
+    # Hosted Postgres drops idle connections; check before use and recycle well inside typical idle timeouts.
+    **({} if IS_SQLITE else {"pool_pre_ping": True, "pool_recycle": 300, "pool_size": 5, "max_overflow": 5}),
 )
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
