@@ -3,6 +3,14 @@
   command = "npm ci --include=dev && npm run build"
   publish = "dist"
 
+# Proxy API calls to the FastAPI backend on Render. Same-origin for the browser,
+# so the SameSite=Lax auth cookie works without CORS changes. Must come before the SPA rule.
+[[redirects]]
+  from = "/api/*"
+  to = "https://vitrostack-backend.onrender.com/api/:splat"
+  status = 200
+  force = true
+
 # Single-page app: serve index.html for client-side routes (React Router)
 [[redirects]]
   from = "/*"

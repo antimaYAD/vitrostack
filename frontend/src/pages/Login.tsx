@@ -22,7 +22,7 @@ export default function Login() {
   const next = params.get("next");
   const safeNext = next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
 
-  useEffect(() => { api.get<{ demo_accounts: Demo[]; allow_signup: boolean }>("/auth/options").then((r) => { setDemo(r.demo_accounts); setAllowSignup(r.allow_signup); }).catch(() => {}); }, []);
+  useEffect(() => { api.get<{ demo_accounts: Demo[]; allow_signup: boolean }>("/auth/options").then((r) => { setDemo(Array.isArray(r?.demo_accounts) ? r.demo_accounts : []); setAllowSignup(!!r?.allow_signup); }).catch(() => {}); }, []);
 
   if (!loading && user) return <Navigate to={safeNext} replace />;
 

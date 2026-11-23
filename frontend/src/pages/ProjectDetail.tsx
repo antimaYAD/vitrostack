@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import {
-  AlertTriangle, ArrowRight, Boxes, Calculator, CheckCircle2, ChevronLeft, Download, FileText, Info, Maximize2, MoreHorizontal,
+  AlertTriangle, ArrowRight, Boxes, Calculator, CheckCircle2, ChevronLeft, Download, FileText, Info, Maximize2, MoreHorizontal, PenTool,
   Printer, RefreshCw, Save, Scissors, ShieldAlert, ShieldCheck, Trash2, Wind,
 } from "lucide-react";
 import { api, type Bom, type Panel, type Project, type Quote, type Sheet } from "../lib/api";
@@ -229,6 +229,7 @@ function PanelsTab({ p, onSaved }: { p: Project; onSaved: (p: Project) => void }
     <Card>
       <CardHeader title="Window schedule" subtitle="Edit inline or import a CSV / Excel file. Units are normalised to mm; unclear rows are highlighted."
         action={<div className="flex gap-2">
+          {!dirty && <Link to={`/designer?project=${p.id}`}><Button variant="secondary" size="sm" icon={<PenTool className="h-3.5 w-3.5" />}>Design an elevation</Button></Link>}
           {dirty && <Button variant="ghost" size="sm" onClick={() => setPanels(p.panels)}>Discard</Button>}
           <Button size="sm" disabled={!dirty} loading={saving} onClick={save} icon={<Save className="h-3.5 w-3.5" />}>Save & re-check</Button>
         </div>} />
@@ -334,6 +335,7 @@ function StructuralTab({ p, busy, onValidate, onApply, onOptimize }: { p: Projec
 
 function CuttingTab({ p, busy, onOptimize, onValidate, onSaved, onQuote }: { p: Project; busy: string | null; onOptimize: (offcuts: boolean) => void; onValidate: () => void; onSaved: () => void; onQuote: () => void }) {
   const c = p.cutting;
+  const { isAdmin } = useAuth();
   const [highlight, setHighlight] = useState<string | null>(null);
   const [zoom, setZoom] = useState<Sheet | null>(null);
   const [savingRem, setSavingRem] = useState(false);
@@ -394,7 +396,7 @@ function CuttingTab({ p, busy, onOptimize, onValidate, onSaved, onQuote }: { p: 
           </div>
           <div className="no-print flex flex-wrap gap-2">
             <Button variant="secondary" size="sm" icon={<RefreshCw className="h-3.5 w-3.5" />} loading={busy === "optimize"} onClick={() => onOptimize(true)}>Re-optimize</Button>
-            {remnantCount > 0 && <Button variant="secondary" size="sm" icon={<Boxes className="h-3.5 w-3.5" />} loading={savingRem} disabled={c.remnants_saved} onClick={saveRemnants}>{c.remnants_saved ? "Remnants saved" : "Save remnants"}</Button>}
+            {remnantCount > 0 && isAdmin && <Button variant="secondary" size="sm" icon={<Boxes className="h-3.5 w-3.5" />} loading={savingRem} disabled={c.remnants_saved} onClick={saveRemnants}>{c.remnants_saved ? "Remnants saved" : "Save remnants"}</Button>}
             <Button variant="secondary" size="sm" icon={<Printer className="h-3.5 w-3.5" />} onClick={() => window.print()}>Print</Button>
             {!p.quote && <Button size="sm" icon={<FileText className="h-3.5 w-3.5" />} onClick={onQuote}>Generate quote</Button>}
           </div>
@@ -449,7 +451,8 @@ function CuttingTab({ p, busy, onOptimize, onValidate, onSaved, onQuote }: { p: 
 function patterns(sheets: Sheet[]) {
   const out: { sheet: Sheet; indices: number[]; key: string }[] = [];
   for (const s of sheets) {
-    const key = s.source === "offcut" ? `offcut-${s.offcut_id}` : JSON.stringify(s.placements.map((p) => [p.tag, p.x, p.y, p.w, p.h]));
+    const layout = JSON.stringify(s.placements.map((p) => [p.tag, p.x, p.y, p.w, p.h]));
+    const key = s.source === "offcut" ? `offcut-${s.offcut_id}-${layout}` : layout;
     const hit = out.find((o) => o.key === key);
     if (hit) hit.indices.push(s.index);
     else out.push({ sheet: s, indices: [s.index], key });

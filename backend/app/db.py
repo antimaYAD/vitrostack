@@ -7,10 +7,30 @@ from datetime import datetime, timezone
 from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, TypeDecorator, create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./vitrostack.db")
+def _database_url() -> str:
+    """DATABASE_URL, with the postgres:// / postgresql:// forms hosts hand out mapped to the psycopg 3 driver."""
+    url = os.getenv("DATABASE_URL", "").strip() or "sqlite:///./vitrostack.db"
+    for prefix in ("postgres://", "postgresql://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url[len(prefix):]
+    return url
+
+
+DATABASE_URL = _database_url()
+IS_SQLITE = DATABASE_URL.startswith("sqlite")
+if IS_SQLITE:
+    _pool_opts: dict = {}
+elif os.getenv("VERCEL"):
+    # Serverless: each instance is short-lived, so don't hold a pool open; the host's pooled URL does the pooling.
+    from sqlalchemy.pool import NullPool
+    _pool_opts = {"poolclass": NullPool}
+else:
+    # Hosted Postgres drops idle connections; check before use and recycle well inside typical idle timeouts.
+    _pool_opts = {"pool_pre_ping": True, "pool_recycle": 300, "pool_size": 5, "max_overflow": 5}
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {},
+    connect_args={"check_same_thread": False} if IS_SQLITE else {},
+    **_pool_opts,
 )
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
@@ -87,6 +107,8 @@ class Offcut(Base):
     width_mm: Mapped[int] = mapped_column(Integer)
     height_mm: Mapped[int] = mapped_column(Integer)
     rack: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    # Number of identical pieces this row represents (nullable only so old databases can be migrated).
+    quantity: Mapped[int | None] = mapped_column(Integer, nullable=True, default=1)
     source: Mapped[str | None] = mapped_column(String(120), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="available")  # available | reserved | used
     reserved_for: Mapped[str | None] = mapped_column(String(32), nullable=True)
@@ -172,6 +194,20 @@ class PriceChange(Base):
     new_value: Mapped[float] = mapped_column(Float)
     changed_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=now)
+
+
+class WindowDesign(Base):
+    """A window elevation drawn in the designer (frame, shape, mullion layout, opening types)."""
+    __tablename__ = "window_designs"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=uid)
+    organization_id: Mapped[str] = mapped_column(String(64), index=True, default=DEFAULT_ORG)
+    project_id: Mapped[str | None] = mapped_column(String(32), index=True, nullable=True)
+    name: Mapped[str] = mapped_column(String(120))
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
+    summary: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=now)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=now, onupdate=now)
 
 
 class User(Base):

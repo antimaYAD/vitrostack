@@ -1,7 +1,8 @@
 import os
 import tempfile
 
-os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(tempfile.mkdtemp(), "t.db")
+# TEST_DATABASE_URL runs the suite against another database (e.g. an empty Postgres).
+os.environ["DATABASE_URL"] = os.getenv("TEST_DATABASE_URL") or "sqlite:///" + os.path.join(tempfile.mkdtemp(), "t.db")
 os.environ["VITRO_STORAGE"] = tempfile.mkdtemp()
 os.environ.pop("GEMINI_API_KEY", None)
 
@@ -59,6 +60,19 @@ def test_offcuts_used_first():
     res = cutting.optimize([{"tag": "A", "width_mm": 1000, "height_mm": 800, "quantity": 1, "glass_spec": "s"}],
                            [{"id": 7, "width_mm": 1100, "height_mm": 900, "glass_spec": "s"}])
     assert res["totals"]["jumbo_sheets"] == 0 and res["totals"]["offcuts_used"] == 1
+
+
+def test_sizes_with_one_piece_are_unavailable_to_optimizer():
+    from app.db import Offcut
+    from app.services import offcut_pieces, usable_offcuts
+
+    def row(i, w, q, status="available"):
+        return Offcut(id=i, glass_spec="s", width_mm=w, height_mm=900, rack="R", quantity=q, status=status)
+
+    rows = [row(1, 1100, 1), row(2, 1500, 3), row(3, 2000, 0), row(4, 2500, 5, "reserved")]
+    usable = usable_offcuts(rows)
+    assert [o.id for o in usable] == [2]  # count 1 and 0 are unavailable; reserved stock is not available
+    assert [p["id"] for p in offcut_pieces(usable)] == [2, 2, 2]  # one optimizer piece per stored unit
 
 
 def test_schedule_parser_units():
@@ -151,3 +165,180 @@ def test_register_creates_isolated_workspace():
         assert c.get("/api/v1/admin/users").status_code == 200
         dup = c.post("/api/v1/auth/register", json={"company": "Other Co", "name": "Y", "email": "asha@glassworks.in", "password": "secret123"})
         assert dup.status_code == 400
+
+
+def test_window_designs_crud_and_scoping():
+    design = {"name": "W01", "width_mm": 1800, "height_mm": 2100, "shape": "rect",
+              "root": {"id": "a", "kind": "leaf", "open": "fixed", "fill": "glass"}}
+    with client() as c:
+        pid = c.post("/api/v1/projects", json={"name": "Designer test", "city": "Pune", "building_height_m": 20,
+                                               "panels": [{"width_mm": 1000, "height_mm": 1000}]}).json()["id"]
+        assert c.post("/api/v1/designs", json={"name": "Bad", "data": {"no": "root"}}).status_code == 400
+        assert c.post("/api/v1/designs", json={"name": "Bad", "data": design, "project_id": "nope"}).status_code == 400
+        r = c.post("/api/v1/designs", json={"name": "W01", "data": design, "project_id": pid, "summary": {"panes": 1}})
+        assert r.status_code == 201, r.text
+        did = r.json()["id"]
+        assert r.json()["created_by"] == "Admin"
+        listed = c.get(f"/api/v1/designs?project_id={pid}").json()
+        assert [d["id"] for d in listed] == [did] and listed[0]["project_name"] == "Designer test"
+        design["width_mm"] = 2400
+        r = c.put(f"/api/v1/designs/{did}", json={"name": "W01 rev B", "data": design, "project_id": pid})
+        assert r.json()["name"] == "W01 rev B" and r.json()["data"]["width_mm"] == 2400
+        # Deleting the project keeps the design but unlinks it.
+        assert c.delete(f"/api/v1/projects/{pid}").status_code == 204
+        assert c.get(f"/api/v1/designs/{did}").json()["project_id"] is None
+    with client("estimator@vitrostack.local", "estimator123") as c:
+        assert c.get(f"/api/v1/designs/{did}").status_code == 200  # same organisation
+        assert c.delete(f"/api/v1/designs/{did}").status_code == 204
+        assert c.get(f"/api/v1/designs/{did}").status_code == 404
+
+
+def test_only_admin_adds_offcuts():
+    piece = {"glass_spec": "12mm_toughened", "width_mm": 900, "height_mm": 600}
+    with client("estimator@vitrostack.local", "estimator123") as est:
+        assert est.get("/api/v1/offcuts").status_code == 200
+        assert est.post("/api/v1/offcuts", json=piece).status_code == 403
+        pid = est.get("/api/v1/projects").json()[0]["id"]
+        assert est.post(f"/api/v1/projects/{pid}/remnants").status_code == 403
+    with client() as c:
+        r = c.post("/api/v1/offcuts", json=piece)
+        assert r.status_code == 201
+        assert c.delete(f"/api/v1/offcuts/{r.json()['id']}").status_code == 204
+
+
+def test_offcut_count_is_stored_on_one_row():
+    piece = {"glass_spec": "12mm_toughened", "width_mm": 777, "height_mm": 555, "rack": "T-1", "quantity": 2}
+
+    def rows(c):
+        return [o for o in c.get("/api/v1/offcuts").json() if o["width_mm"] == 777 and o["rack"] == "T-1"]
+
+    with client() as c:
+        oid = c.post("/api/v1/offcuts", json=piece).json()["id"]
+        again = c.post("/api/v1/offcuts", json={**piece, "quantity": 3}).json()
+        assert again["id"] == oid and again["quantity"] == 5  # same size + rack adds to the same row
+        assert len(rows(c)) == 1
+        r = c.put(f"/api/v1/offcuts/{oid}/count", json={"count": 78}).json()
+        assert r["quantity"] == 78 and r["usable"] is True and len(rows(c)) == 1
+        r = c.put(f"/api/v1/offcuts/{oid}/count", json={"count": 1}).json()
+        assert r["quantity"] == 1 and r["usable"] is False
+        assert c.put(f"/api/v1/offcuts/{oid}/count", json={"count": -1}).status_code == 422
+    with client("estimator@vitrostack.local", "estimator123") as est:
+        assert est.put(f"/api/v1/offcuts/{oid}/count", json={"count": 3}).status_code == 403
+
+
+def test_optimizer_reserves_part_of_a_row_and_releases_it():
+    from app import services
+    from app.db import Offcut, Panel, Project, SessionLocal
+
+    with SessionLocal() as db:
+        p = Project(name="Qty test", client="c", city="Mumbai", building_height_m=10, glass_spec="6mm_toughened",
+                    glazing_system="x", wind={"all_safe": True})
+        db.add(p)
+        db.flush()
+        db.add(Panel(project_id=p.id, tag="A", width_mm=1000, height_mm=800, quantity=2))
+        row = Offcut(glass_spec="6mm_toughened", width_mm=1050, height_mm=850, rack="Q-1", quantity=5)
+        db.add(row)
+        db.commit()
+        db.refresh(p)
+        services.run_cutting(db, p)
+        q = db.query(Offcut).filter(Offcut.width_mm == 1050, Offcut.rack == "Q-1")
+        assert sorted((o.status, o.quantity) for o in q) == [("available", 3), ("reserved", 2)]
+        services.release_offcuts(db, p.id)
+        db.commit()
+        assert [(o.status, o.quantity) for o in q] == [("available", 5)]  # merged back into one row
+
+
+def _facade(joint, glass="12mm_toughened", op3="fixed"):
+    return {"elevation_id": "W-101", "overall_width_mm": 4800, "overall_height_mm": 3000, "wind_pressure_kpa": 1.85,
+            "bays": [{"bay_index": i, "x_mm": (i - 1) * 1600, "width_mm": 1600, "height_mm": 3000,
+                      "operation": op3 if i == 3 else "fixed", "glass_spec": glass,
+                      "track_system": "2_track_recessed" if op3 != "fixed" and i == 3 else None,
+                      "right_joint": joint if i < 3 else None} for i in (1, 2, 3)]}
+
+
+def test_facade_canvas_wind_bom_and_dxf():
+    import io
+    import math
+    import ezdxf
+
+    butt = {"type": "silicone_butt_joint", "gap_mm": 8, "sealant": "Dow_Dowsil_995"}
+    with client("estimator@vitrostack.local", "estimator123") as c:
+        # Unbacked butt joints leave the vertical edges free: 3 m panes spanning one way fail.
+        free = c.post("/api/v1/canvas/validate-wind-load", json=_facade(butt)).json()
+        assert not free["pass"] and all(p["support"].startswith("two-edge") for p in free["panes"])
+        assert "glass fin" in free["panes"][0]["hint"]
+        # A glass fin supports the edges, and 12 mm toughened passes at 1.85 kPa.
+        fin = c.post("/api/v1/canvas/validate-wind-load", json=_facade({**butt, "backing": "glass_fin"})).json()
+        assert fin["pass"] and all(p["support"] == "four-edge" for p in fin["panes"])
+        j = fin["joints"][0]
+        assert j["required_bite_mm"] == max(6, math.ceil(1.85 * j["short_span_mm"] / (2 * 138)))
+        # Net glass: 1600 module − 50 frame − 4 (half gap) + 12 rebate into the frame; no rebate at the butt joint.
+        assert (fin["panes"][0]["glass_width_mm"], fin["panes"][0]["glass_height_mm"]) == (1558, 2924)
+
+        # Site wind pressure is computed with IS 875 when a site is given.
+        site = c.post("/api/v1/canvas/validate-wind-load", json={**_facade(butt), "site": {"city": "Mumbai", "height_m": 45}}).json()
+        assert site["wind"]["city"] == "Mumbai" and site["wind_pressure_kpa"] == site["wind"]["design_pressure_kpa"]
+
+        # BOM: 2 butt joints × 2.9 m, silicone = 8 × 12 × 2900 mm³ each, polished edges on both sides of each joint.
+        bom = c.post("/api/v1/canvas/extract-bom", json=_facade({**butt, "backing": "glass_fin"})).json()
+        assert bom["silicone"]["butt_joint_m"] == 5.8 and bom["silicone"]["net_ml"] == round(2 * 8 * 12 * 2900 / 1000)
+        assert bom["polished_edge_m"] == round(4 * 2924 / 1000, 2) and bom["aluminium"]["mullion_m"] == 0
+        # Sliding bay with mullions: track head + sill, and a slider beside a butt joint is an error.
+        slide = c.post("/api/v1/canvas/extract-bom", json=_facade({"type": "aluminum_mullion"}, op3="sliding_left")).json()
+        assert slide["aluminium"]["tracks"][0]["length_m"] == round(2 * (1600 - 25 - 50) / 1000, 2)
+        bad = c.post("/api/v1/canvas/validate-wind-load", json=_facade(butt, op3="sliding_left")).json()
+        assert any(i["level"] == "error" and "sliding" in i["message"] for i in bad["issues"])
+        # DGU is cut as two 6 mm lites.
+        dgu = c.post("/api/v1/canvas/extract-bom", json=_facade({"type": "aluminum_mullion"}, glass="24mm_dgu")).json()
+        assert {x["glass_spec"] for x in dgu["cutting_list"]} == {"6mm_toughened"} and sum(x["quantity"] for x in dgu["cutting_list"]) == 6
+
+        # Geometry that doesn't add up is rejected.
+        wrong = _facade(butt)
+        wrong["bays"][0]["width_mm"] = 1500
+        r = c.post("/api/v1/canvas/validate-wind-load", json=wrong)
+        assert r.status_code == 400 and "4700" in r.json()["detail"]
+
+        # DXF is a readable drawing in millimetres with the expected layers.
+        r = c.post("/api/v1/canvas/export-dxf", json=_facade(butt))
+        assert r.status_code == 200 and r.headers["content-disposition"].endswith('"W-101.dxf"')
+        doc = ezdxf.read(io.StringIO(r.content.decode()))
+        assert doc.header["$INSUNITS"] == 4
+        layers = {e.dxf.layer for e in doc.modelspace()}
+        assert {"VS-FRAME", "VS-GLASS", "VS-BUTT-JOINT", "VS-DIMENSIONS"} <= layers
+
+        # Facade elevations save to the shared library but stay out of the window designer's list.
+        saved = c.post("/api/v1/designs", json={"name": "Lobby", "data": {"kind": "facade", "bays": [{}]}})
+        assert saved.status_code == 201
+        assert all(d["id"] != saved.json()["id"] for d in c.get("/api/v1/designs").json())
+        assert any(d["id"] == saved.json()["id"] for d in c.get("/api/v1/designs?kind=facade").json())
+        assert c.post("/api/v1/designs", json={"name": "x", "data": {"kind": "facade", "bays": []}}).status_code == 400
+        c.delete(f"/api/v1/designs/{saved.json()['id']}")
+
+
+def test_facade_infills_and_doors():
+    mull = {"type": "aluminum_mullion"}
+    data = _facade(mull)
+    data["bays"][0] = {**data["bays"][0], "operation": None, "glass_spec": None, "panes": [
+        {"pane_index": 1, "height_mm": 600, "infill": "louvre"},
+        {"pane_index": 2, "height_mm": 2400, "operation": "door"}]}
+    data["bays"][1] = {**data["bays"][1], "operation": "tilt_turn", "infill": "glass"}
+    data["bays"][2] = {**data["bays"][2], "infill": "spandrel"}
+    with client("estimator@vitrostack.local", "estimator123") as c:
+        v = c.post("/api/v1/canvas/validate-wind-load", json=data).json()
+        assert not [i for i in v["issues"] if i["level"] == "error"], v["issues"]
+        by = {p["mark"]: p for p in v["panes"]}
+        assert by["W-101/B1-A"]["infill"] == "louvre" and by["W-101/B1-A"]["utilisation"] == 0
+        assert by["W-101/B1-B"]["support"] == "four-edge"
+        b = c.post("/api/v1/canvas/extract-bom", json=data).json()
+        assert sorted(x["infill"] for x in b["infill_panels"]) == ["louvre", "spandrel"]
+        assert {g["mark"] for g in b["glass"]} == {"W-101/B1-B", "W-101/B2-A"}
+        assert b["aluminium"]["sash_m"] > 0
+        # A door above a transom, an opening louvre and a spandrel at a butt joint are errors.
+        bad = _facade({"type": "silicone_butt_joint", "gap_mm": 8, "backing": "glass_fin"})
+        bad["bays"][0] = {**bad["bays"][0], "operation": None, "panes": [
+            {"pane_index": 1, "height_mm": 2400, "operation": "door"}, {"pane_index": 2, "height_mm": 600}]}
+        bad["bays"][1] = {**bad["bays"][1], "infill": "spandrel"}
+        bad["bays"][2] = {**bad["bays"][2], "operation": "casement", "infill": "louvre"}
+        msgs = " ".join(i["message"] for i in c.post("/api/v1/canvas/validate-wind-load", json=bad).json()["issues"])
+        assert "bottom pane" in msgs and "can't be silicone butt-jointed" in msgs and "can't open" in msgs
+        assert c.post("/api/v1/canvas/export-dxf", json=data).status_code == 200

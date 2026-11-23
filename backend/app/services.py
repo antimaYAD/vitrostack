@@ -166,15 +166,109 @@ def run_silicone_calc(p: Project, pressure_kpa: float, prices: dict | None = Non
     return res
 
 
-def available_offcuts(db: Session, spec: str, project_id: str | None = None, org: str = DEFAULT_ORG) -> list[Offcut]:
+# A size (glass + dimensions + rack) with this many or fewer available pieces is treated as unavailable:
+# it is shown as "Unavailable" and the optimizer will not cut from it.
+MIN_UNAVAILABLE_COUNT = 1
+
+
+def offcut_group(o: Offcut) -> tuple:
+    return (o.glass_spec, o.width_mm, o.height_mm, o.rack)
+
+
+def qty(o: Offcut) -> int:
+    return 1 if o.quantity is None else o.quantity
+
+
+def offcut_counts(rows: list[Offcut]) -> dict[tuple, int]:
+    """Available pieces per size group (glass + size + rack)."""
+    counts: dict[tuple, int] = {}
+    for o in rows:
+        if o.status == "available":
+            counts[offcut_group(o)] = counts.get(offcut_group(o), 0) + qty(o)
+    return counts
+
+
+def usable_offcuts(rows: list[Offcut]) -> list[Offcut]:
+    counts = offcut_counts(rows)
+    return [o for o in rows if o.status == "available" and qty(o) > 0
+            and counts[offcut_group(o)] > MIN_UNAVAILABLE_COUNT]
+
+
+def available_offcuts(db: Session, spec: str, org: str = DEFAULT_ORG) -> list[Offcut]:
     q = select(Offcut).where(Offcut.organization_id == org, Offcut.glass_spec == spec)
-    rows = db.scalars(q).all()
-    return [o for o in rows if o.status == "available" or (project_id and o.reserved_for == project_id)]
+    return usable_offcuts(db.scalars(q).all())
+
+
+def offcut_pieces(rows: list[Offcut]) -> list[dict]:
+    """Expand rows into one optimizer piece per physical offcut (pieces share their row's id)."""
+    return [{"id": o.id, "width_mm": o.width_mm, "height_mm": o.height_mm, "glass_spec": o.glass_spec}
+            for o in rows for _ in range(qty(o))]
+
+
+def _available_row(db: Session, org: str, spec: str, w: int, h: int, rack: str | None) -> Offcut | None:
+    rack_match = Offcut.rack.is_(None) if rack is None else Offcut.rack == rack
+    return db.scalars(select(Offcut).where(
+        Offcut.organization_id == org, Offcut.glass_spec == spec, Offcut.width_mm == w, Offcut.height_mm == h,
+        rack_match, Offcut.status == "available").order_by(Offcut.id)).first()
+
+
+def add_offcut_stock(db: Session, org: str, spec: str, w: int, h: int, rack: str | None, source: str | None,
+                     quantity: int = 1) -> Offcut:
+    """Add pieces to the matching available row, or create one. Width is always the long side."""
+    w, h = max(w, h), min(w, h)
+    row = _available_row(db, org, spec, w, h, rack)
+    if row:
+        row.quantity = qty(row) + quantity
+    else:
+        row = Offcut(organization_id=org, glass_spec=spec, width_mm=w, height_mm=h, rack=rack,
+                     source=source or "Manual entry", quantity=quantity)
+        db.add(row)
+    db.flush()
+    return row
+
+
+def reserve_offcut(db: Session, o: Offcut, n: int, project_id: str | None):
+    """Reserve n pieces of available row o for a project, splitting the row when only part of it is used."""
+    n = min(n, qty(o))
+    if n <= 0:
+        return
+    if n == qty(o):
+        o.status, o.reserved_for = "reserved", project_id
+    else:
+        o.quantity = qty(o) - n
+        db.add(Offcut(organization_id=o.organization_id, glass_spec=o.glass_spec, width_mm=o.width_mm,
+                      height_mm=o.height_mm, rack=o.rack, source=o.source, quantity=n,
+                      status="reserved", reserved_for=project_id))
+    db.flush()
+
+
+def consolidate_offcuts(db: Session):
+    """Merge duplicate available rows (same org, glass, size, rack) into one row carrying the quantity."""
+    keep: dict[tuple, Offcut] = {}
+    for o in db.scalars(select(Offcut).order_by(Offcut.id)).all():
+        if o.quantity is None:
+            o.quantity = 1
+        if o.status != "available":
+            continue
+        k = (o.organization_id, *offcut_group(o))
+        if k in keep:
+            keep[k].quantity += o.quantity
+            db.delete(o)
+        else:
+            keep[k] = o
+    db.commit()
 
 
 def release_offcuts(db: Session, project_id: str):
+    """Return a project's reserved pieces to stock, merging them into the matching available row."""
     for o in db.scalars(select(Offcut).where(Offcut.reserved_for == project_id)).all():
-        o.status, o.reserved_for = "available", None
+        row = _available_row(db, o.organization_id, o.glass_spec, o.width_mm, o.height_mm, o.rack)
+        if row:
+            row.quantity = qty(row) + qty(o)
+            db.delete(o)
+        else:
+            o.status, o.reserved_for = "available", None
+    db.flush()
 
 
 def run_cutting(db: Session, p: Project, check_offcuts: bool = True, force: bool = False) -> dict:
@@ -184,16 +278,18 @@ def run_cutting(db: Session, p: Project, check_offcuts: bool = True, force: bool
         raise ValueError("Glass specification failed the wind-load check. Switch to "
                          f"{p.wind.get('recommended_glass_spec') or 'a thicker spec'} before optimizing.")
     spec_key = parse_glass_spec(p.glass_spec).key
-    offs = available_offcuts(db, spec_key, p.id) if check_offcuts else []
+    release_offcuts(db, p.id)  # this project's earlier reservations go back into the pool first
+    offs = available_offcuts(db, spec_key, p.organization_id) if check_offcuts else []
     panels = [{"tag": x.tag, "width_mm": x.width_mm, "height_mm": x.height_mm, "quantity": x.quantity,
                "glass_spec": spec_key} for x in p.panels]
-    res = cutting.optimize(panels, [{"id": o.id, "width_mm": o.width_mm, "height_mm": o.height_mm,
-                                     "glass_spec": o.glass_spec} for o in offs], check_offcuts)
-    release_offcuts(db, p.id)
-    used = {s["offcut_id"] for g in res["groups"] for s in g["sheets"] if s["source"] == "offcut"}
+    res = cutting.optimize(panels, offcut_pieces(offs), check_offcuts)
+    used: dict[str, int] = {}
+    for g in res["groups"]:
+        for s in g["sheets"]:
+            if s["source"] == "offcut":
+                used[s["offcut_id"]] = used.get(s["offcut_id"], 0) + 1
     for o in offs:
-        if str(o.id) in used:
-            o.status, o.reserved_for = "reserved", p.id
+        reserve_offcut(db, o, used.get(str(o.id), 0), p.id)
     _invalidate(p, "cutting")
     p.cutting = res
     p.status = "optimized"

@@ -97,11 +97,10 @@ def _breakage(db: Session, phone: str, panel_uid: str, org: str) -> dict:
         return {"action": "breakage_unknown", "reply": reply}
     project, panel, uid = found
     spec = parse_glass_spec(project.glass_spec).key
-    offs = services.available_offcuts(db, spec, None, org)
+    offs = services.available_offcuts(db, spec, org)
     plan = cutting.optimize(
         [{"tag": panel.tag, "width_mm": panel.width_mm, "height_mm": panel.height_mm, "quantity": 1, "glass_spec": spec}],
-        [{"id": o.id, "width_mm": o.width_mm, "height_mm": o.height_mm, "glass_spec": o.glass_spec} for o in offs],
-        True)
+        services.offcut_pieces(offs), True)
     sheet = plan["groups"][0]["sheets"][0]
     source = (f"offcut #{sheet['offcut_id']} ({sheet['width_mm']}×{sheet['height_mm']})"
               if sheet["source"] == "offcut" else "a new jumbo sheet")
@@ -124,8 +123,8 @@ def approve_breakage(db: Session, alert: Alert) -> dict:
     p = alert.payload or {}
     if p.get("offcut_id"):
         o = db.get(Offcut, int(p["offcut_id"]))
-        if o and o.status == "available":
-            o.status, o.reserved_for = "reserved", alert.project_id
+        if o and o in services.available_offcuts(db, o.glass_spec, o.organization_id):
+            services.reserve_offcut(db, o, 1, alert.project_id)
     alert.status = "approved"
     db.commit()
     text = (f"✅ Replacement for {p.get('panel_uid')} approved. Cutting from "

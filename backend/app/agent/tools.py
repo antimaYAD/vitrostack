@@ -100,10 +100,11 @@ def t_offcuts(db, a, ctx):
     q = select(Offcut).where(Offcut.organization_id == ctx.get("org", DEFAULT_ORG), Offcut.status == "available")
     if a.get("glass_spec"):
         q = q.where(Offcut.glass_spec == a["glass_spec"])
-    rows = db.scalars(q).all()
-    return {"count": len(rows), "area_m2": round(sum(o.width_mm * o.height_mm for o in rows) / 1e6, 2),
+    rows = services.usable_offcuts(db.scalars(q).all())
+    q = services.qty
+    return {"count": sum(q(o) for o in rows), "area_m2": round(sum(o.width_mm * o.height_mm * q(o) for o in rows) / 1e6, 2),
             "offcuts": [{"id": o.id, "glass_spec": o.glass_spec, "width_mm": o.width_mm,
-                         "height_mm": o.height_mm, "rack": o.rack} for o in rows[:50]]}
+                         "height_mm": o.height_mm, "rack": o.rack, "quantity": q(o)} for o in rows[:50]]}
 
 
 def t_list_projects(db, a, ctx):

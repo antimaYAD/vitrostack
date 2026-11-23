@@ -25,6 +25,7 @@ const NAV = [
   { to: "/", label: "Overview", end: true },
   { to: "/copilot", label: "Copilot" },
   { to: "/projects", label: "Projects" },
+  { to: "/designer", label: "Designer" },
   { to: "/engineering", label: "Engineering" },
   { to: "/inventory", label: "Offcuts" },
   { to: "/site", label: "Site Ops", badge: true },
@@ -218,6 +219,7 @@ export default function Layout() {
 
   const ctx = useMemo(() => ({ reference, alertCount, refreshAlerts, health, openPalette: () => setPalette(true), refreshReference }), [reference, alertCount, refreshAlerts, health, refreshReference]);
   const fullBleed = loc.pathname.startsWith("/copilot");
+  const drawing = loc.pathname.startsWith("/designer"); // CAD canvas: use the full screen width
   const iconBtn = "flex h-9 w-9 items-center justify-center rounded-full text-slate-600 transition hover:bg-black/5 hover:text-[#1d1d1f] dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-white";
 
   return (
@@ -284,7 +286,7 @@ export default function Layout() {
 
         <main>
           {fullBleed ? <Outlet /> : (
-            <div className="mx-auto max-w-[1120px] px-5 pb-20 pt-10 sm:pt-14"><Outlet /></div>
+            <div className={cn("mx-auto px-5 pb-20 pt-10 sm:pt-14", drawing ? "max-w-[1800px]" : "max-w-[1120px]")}><Outlet /></div>
           )}
         </main>
         <CommandPalette open={palette} onClose={() => setPalette(false)} />
