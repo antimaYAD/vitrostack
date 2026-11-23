@@ -62,6 +62,19 @@ def test_offcuts_used_first():
     assert res["totals"]["jumbo_sheets"] == 0 and res["totals"]["offcuts_used"] == 1
 
 
+def test_sizes_with_one_piece_are_unavailable_to_optimizer():
+    from app.db import Offcut
+    from app.services import offcut_pieces, usable_offcuts
+
+    def row(i, w, q, status="available"):
+        return Offcut(id=i, glass_spec="s", width_mm=w, height_mm=900, rack="R", quantity=q, status=status)
+
+    rows = [row(1, 1100, 1), row(2, 1500, 3), row(3, 2000, 0), row(4, 2500, 5, "reserved")]
+    usable = usable_offcuts(rows)
+    assert [o.id for o in usable] == [2]  # count 1 and 0 are unavailable; reserved stock is not available
+    assert [p["id"] for p in offcut_pieces(usable)] == [2, 2, 2]  # one optimizer piece per stored unit
+
+
 def test_schedule_parser_units():
     csv = b"Project X schedule\nTag,Width (m),Height (m),Qty,Floor\nW1,2.4,1.5,10,12\nW2,1.8,,4,12\n"
     r = parse_file("s.csv", csv)
@@ -190,7 +203,49 @@ def test_only_admin_adds_offcuts():
     with client() as c:
         r = c.post("/api/v1/offcuts", json=piece)
         assert r.status_code == 201
-        assert c.delete(f"/api/v1/offcuts/{r.json()[0]['id']}").status_code == 204
+        assert c.delete(f"/api/v1/offcuts/{r.json()['id']}").status_code == 204
+
+
+def test_offcut_count_is_stored_on_one_row():
+    piece = {"glass_spec": "12mm_toughened", "width_mm": 777, "height_mm": 555, "rack": "T-1", "quantity": 2}
+
+    def rows(c):
+        return [o for o in c.get("/api/v1/offcuts").json() if o["width_mm"] == 777 and o["rack"] == "T-1"]
+
+    with client() as c:
+        oid = c.post("/api/v1/offcuts", json=piece).json()["id"]
+        again = c.post("/api/v1/offcuts", json={**piece, "quantity": 3}).json()
+        assert again["id"] == oid and again["quantity"] == 5  # same size + rack adds to the same row
+        assert len(rows(c)) == 1
+        r = c.put(f"/api/v1/offcuts/{oid}/count", json={"count": 78}).json()
+        assert r["quantity"] == 78 and r["usable"] is True and len(rows(c)) == 1
+        r = c.put(f"/api/v1/offcuts/{oid}/count", json={"count": 1}).json()
+        assert r["quantity"] == 1 and r["usable"] is False
+        assert c.put(f"/api/v1/offcuts/{oid}/count", json={"count": -1}).status_code == 422
+    with client("estimator@vitrostack.local", "estimator123") as est:
+        assert est.put(f"/api/v1/offcuts/{oid}/count", json={"count": 3}).status_code == 403
+
+
+def test_optimizer_reserves_part_of_a_row_and_releases_it():
+    from app import services
+    from app.db import Offcut, Panel, Project, SessionLocal
+
+    with SessionLocal() as db:
+        p = Project(name="Qty test", client="c", city="Mumbai", building_height_m=10, glass_spec="6mm_toughened",
+                    glazing_system="x", wind={"all_safe": True})
+        db.add(p)
+        db.flush()
+        db.add(Panel(project_id=p.id, tag="A", width_mm=1000, height_mm=800, quantity=2))
+        row = Offcut(glass_spec="6mm_toughened", width_mm=1050, height_mm=850, rack="Q-1", quantity=5)
+        db.add(row)
+        db.commit()
+        db.refresh(p)
+        services.run_cutting(db, p)
+        q = db.query(Offcut).filter(Offcut.width_mm == 1050, Offcut.rack == "Q-1")
+        assert sorted((o.status, o.quantity) for o in q) == [("available", 3), ("reserved", 2)]
+        services.release_offcuts(db, p.id)
+        db.commit()
+        assert [(o.status, o.quantity) for o in q] == [("available", 5)]  # merged back into one row
 
 
 def _facade(joint, glass="12mm_toughened", op3="fixed"):

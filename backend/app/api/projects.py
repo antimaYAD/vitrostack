@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import auth, pricing, services
-from ..db import Offcut, Project, WindowDesign, get_db
+from ..db import Project, WindowDesign, get_db
 from ..engines import costing
 from .deps import org_id, protected_router
 
@@ -171,8 +171,8 @@ def save_remnants(pid: str, db: Session = Depends(get_db), org: str = Depends(or
     for g in p.cutting["groups"]:
         for s in g["sheets"]:
             for r in s["remnants"]:
-                db.add(Offcut(organization_id=org, glass_spec=g["glass_spec"], width_mm=r["w"], height_mm=r["h"],
-                              source=f"{p.name} · sheet {s['index']}", rack="R-NEW"))
+                services.add_offcut_stock(db, org, g["glass_spec"], r["w"], r["h"], "R-NEW",
+                                          f"{p.name} · sheet {s['index']}")
                 n += 1
     p.cutting = {**p.cutting, "remnants_saved": True}
     db.commit()

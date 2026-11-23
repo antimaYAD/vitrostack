@@ -6,11 +6,14 @@ export class ApiError extends Error {
   }
 }
 
+// Empty = same origin (Vite dev proxy / Netlify proxy). Set VITE_API_URL to call a backend directly.
+const API_BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "");
+
 async function request<T>(method: string, url: string, body?: unknown, extraHeaders?: Record<string, string>): Promise<T> {
   const isForm = body instanceof FormData;
   let res: Response;
   try {
-    res = await fetch(`/api/v1${url}`, {
+    res = await fetch(`${API_BASE}/api/v1${url}`, {
       method,
       headers: { ...(isForm || body === undefined ? {} : { "Content-Type": "application/json" }), ...(extraHeaders ?? {}) },
       body: isForm ? (body as FormData) : body === undefined ? undefined : JSON.stringify(body),
@@ -20,6 +23,10 @@ async function request<T>(method: string, url: string, body?: unknown, extraHead
   }
   if (res.status === 401 && !url.startsWith("/auth/")) window.dispatchEvent(new Event("vs:unauthorized"));
   if (res.status === 204) return undefined as T;
+  if (!(res.headers.get("content-type") ?? "").includes("application/json")) {
+    // e.g. a static host (Netlify) answering /api/* with index.html because no backend is wired up
+    throw new ApiError("The VitroStack API is not reachable from this site (got a non-JSON response).", res.status || 502);
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     let msg = "Something went wrong";
@@ -238,12 +245,21 @@ export interface Offcut {
   glass_label: string;
   width_mm: number;
   height_mm: number;
+  /** Number of identical pieces stored in this row. */
+  quantity: number;
+  /** Area of one piece. */
   area_m2: number;
+  /** area_m2 × quantity. */
+  total_area_m2: number;
   rack: string | null;
   source: string | null;
   status: "available" | "reserved" | "used";
   reserved_for: string | null;
   created_at: string;
+  /** Available pieces with the same glass, size and rack. */
+  available_count: number;
+  /** False when available_count <= 1: shown as Unavailable and skipped by the optimizer. */
+  usable: boolean;
 }
 
 export interface Alert {

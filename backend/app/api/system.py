@@ -48,14 +48,15 @@ def dashboard(db: Session = Depends(get_db), org: str = Depends(org_id)):
     quoted = [p for p in projects if p.quote]
     scraps = [p.cutting["totals"]["scrap_pct"] for p in projects if p.cutting]
     offcuts = db.scalars(select(Offcut).where(Offcut.organization_id == org)).all()
-    avail = [o for o in offcuts if o.status == "available"]
-    reused_area = sum(o.width_mm * o.height_mm for o in offcuts if o.status in ("reserved", "used")) / 1e6
+    avail = services.usable_offcuts(offcuts)
+    q = services.qty
+    reused_area = sum(o.width_mm * o.height_mm * q(o) for o in offcuts if o.status in ("reserved", "used")) / 1e6
     saved = 0.0
     prices = pricing.get_prices(db, org)
     for o in offcuts:
         if o.status in ("reserved", "used"):
             try:
-                saved += o.width_mm * o.height_mm / 1e6 * glass_rate(parse_glass_spec(o.glass_spec), prices)
+                saved += o.width_mm * o.height_mm * q(o) / 1e6 * glass_rate(parse_glass_spec(o.glass_spec), prices)
             except ValueError:
                 pass
     alerts = db.scalars(select(Alert).where(Alert.organization_id == org, Alert.status == "open")
@@ -69,8 +70,8 @@ def dashboard(db: Session = Depends(get_db), org: str = Depends(org_id)):
             "pipeline_value": round(sum(p.quote["grand_total"] for p in quoted), 2),
             "quoted_projects": len(quoted),
             "avg_scrap_pct": round(sum(scraps) / len(scraps), 2) if scraps else None,
-            "offcuts_available": len(avail),
-            "offcut_area_m2": round(sum(o.width_mm * o.height_mm for o in avail) / 1e6, 2),
+            "offcuts_available": sum(q(o) for o in avail),
+            "offcut_area_m2": round(sum(o.width_mm * o.height_mm * q(o) for o in avail) / 1e6, 2),
             "offcut_reused_area_m2": round(reused_area, 2),
             "offcut_savings_inr": round(saved),
             "open_alerts": len(alerts),

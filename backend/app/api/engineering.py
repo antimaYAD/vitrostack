@@ -54,10 +54,9 @@ def eng_silicone(body: SiliconeIn, db: Session = Depends(get_db), org: str = Dep
 @router.post("/engineering/cutting")
 def eng_cutting(body: CuttingIn, db: Session = Depends(get_db), org: str = Depends(org_id)):
     spec = parse_glass_spec(body.glass_spec).key
-    offs = services.available_offcuts(db, spec, None, org) if body.check_offcuts else []
+    offs = services.available_offcuts(db, spec, org) if body.check_offcuts else []
     panels = [{**x.model_dump(), "glass_spec": spec} for x in body.panels]
-    return cutting.optimize(panels, [{"id": o.id, "width_mm": o.width_mm, "height_mm": o.height_mm,
-                                      "glass_spec": o.glass_spec} for o in offs], body.check_offcuts, body.allow_rotate)
+    return cutting.optimize(panels, services.offcut_pieces(offs), body.check_offcuts, body.allow_rotate)
 
 
 @router.post("/uploads")

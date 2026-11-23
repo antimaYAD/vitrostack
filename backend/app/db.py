@@ -18,11 +18,19 @@ def _database_url() -> str:
 
 DATABASE_URL = _database_url()
 IS_SQLITE = DATABASE_URL.startswith("sqlite")
+if IS_SQLITE:
+    _pool_opts: dict = {}
+elif os.getenv("VERCEL"):
+    # Serverless: each instance is short-lived, so don't hold a pool open; the host's pooled URL does the pooling.
+    from sqlalchemy.pool import NullPool
+    _pool_opts = {"poolclass": NullPool}
+else:
+    # Hosted Postgres drops idle connections; check before use and recycle well inside typical idle timeouts.
+    _pool_opts = {"pool_pre_ping": True, "pool_recycle": 300, "pool_size": 5, "max_overflow": 5}
 engine = create_engine(
     DATABASE_URL,
     connect_args={"check_same_thread": False} if IS_SQLITE else {},
-    # Hosted Postgres drops idle connections; check before use and recycle well inside typical idle timeouts.
-    **({} if IS_SQLITE else {"pool_pre_ping": True, "pool_recycle": 300, "pool_size": 5, "max_overflow": 5}),
+    **_pool_opts,
 )
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
@@ -99,6 +107,8 @@ class Offcut(Base):
     width_mm: Mapped[int] = mapped_column(Integer)
     height_mm: Mapped[int] = mapped_column(Integer)
     rack: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    # Number of identical pieces this row represents (nullable only so old databases can be migrated).
+    quantity: Mapped[int | None] = mapped_column(Integer, nullable=True, default=1)
     source: Mapped[str | None] = mapped_column(String(120), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="available")  # available | reserved | used
     reserved_for: Mapped[str | None] = mapped_column(String(32), nullable=True)

@@ -451,7 +451,8 @@ function CuttingTab({ p, busy, onOptimize, onValidate, onSaved, onQuote }: { p: 
 function patterns(sheets: Sheet[]) {
   const out: { sheet: Sheet; indices: number[]; key: string }[] = [];
   for (const s of sheets) {
-    const key = s.source === "offcut" ? `offcut-${s.offcut_id}` : JSON.stringify(s.placements.map((p) => [p.tag, p.x, p.y, p.w, p.h]));
+    const layout = JSON.stringify(s.placements.map((p) => [p.tag, p.x, p.y, p.w, p.h]));
+    const key = s.source === "offcut" ? `offcut-${s.offcut_id}-${layout}` : layout;
     const hit = out.find((o) => o.key === key);
     if (hit) hit.indices.push(s.index);
     else out.push({ sheet: s, indices: [s.index], key });

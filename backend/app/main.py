@@ -15,19 +15,33 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 from .api import routers  # noqa: E402
 from .auth import DEMO_MODE, seed_users  # noqa: E402
-from .db import init_db  # noqa: E402
+from .db import SessionLocal, init_db  # noqa: E402
 from .seed import seed  # noqa: E402
-from .services import NotFound  # noqa: E402
+from .services import NotFound, consolidate_offcuts  # noqa: E402
 
 logging.basicConfig(level=logging.INFO)
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
+_started = False
+
+
+def startup() -> None:
+    """Create tables and seed once per process. Safe to call more than once (serverless cold starts call it directly)."""
+    global _started
+    if _started:
+        return
     init_db()
     seed_users()
     if DEMO_MODE:  # demo projects and offcut stock; a production database starts empty
         seed()
+    with SessionLocal() as db:  # merge duplicate offcut rows into one row with a quantity
+        consolidate_offcuts(db)
+    _started = True
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    startup()
     yield
 
 
