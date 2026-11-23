@@ -15,7 +15,7 @@ export function panelErrors(p: Panel): string | null {
   return null;
 }
 
-const cell = "w-full rounded-md border-0 bg-transparent px-2 py-1.5 text-sm tabular-nums ring-1 ring-inset ring-transparent hover:ring-slate-200 focus:bg-white focus:ring-2 focus:ring-brand-600 dark:hover:ring-slate-700 dark:focus:bg-slate-950";
+const cell = "w-full rounded-md border-0 bg-transparent px-2 py-1.5 text-sm tabular-nums placeholder:italic placeholder:text-slate-400/60 dark:placeholder:text-slate-500/60 ring-1 ring-inset ring-transparent hover:ring-slate-200 focus:bg-white focus:ring-2 focus:ring-brand-600 dark:hover:ring-slate-700 dark:focus:bg-slate-950";
 
 export default function PanelEditor({ panels, onChange }: { panels: Panel[]; onChange: (p: Panel[]) => void }) {
   const file = useRef<HTMLInputElement>(null);
@@ -76,8 +76,8 @@ export default function PanelEditor({ panels, onChange }: { panels: Panel[]; onC
               return (
                 <tr key={i} className={cn("border-t border-slate-100 dark:border-slate-800", p.needs_review && "bg-amber-50/70 dark:bg-amber-950/20")}>
                   <td className="px-1 py-1"><input aria-label="Tag" className={cell} value={p.tag} onChange={(e) => update(i, { tag: e.target.value })} /></td>
-                  <td className="px-1 py-1"><input aria-label="Width mm" inputMode="numeric" className={cn(cell, err?.startsWith("Width") && "ring-rose-300")} value={p.width_mm || ""} onChange={(e) => update(i, { width_mm: Number(e.target.value.replace(/\D/g, "")) })} placeholder="2400" /></td>
-                  <td className="px-1 py-1"><input aria-label="Height mm" inputMode="numeric" className={cn(cell, err?.startsWith("Height") && "ring-rose-300")} value={p.height_mm || ""} onChange={(e) => update(i, { height_mm: Number(e.target.value.replace(/\D/g, "")) })} placeholder="1500" /></td>
+                  <td className="px-1 py-1"><input aria-label="Width mm" inputMode="numeric" className={cn(cell, err?.startsWith("Width") && "ring-rose-300")} value={p.width_mm || ""} onChange={(e) => update(i, { width_mm: Number(e.target.value.replace(/\D/g, "")) })} placeholder="e.g. 2400" /></td>
+                  <td className="px-1 py-1"><input aria-label="Height mm" inputMode="numeric" className={cn(cell, err?.startsWith("Height") && "ring-rose-300")} value={p.height_mm || ""} onChange={(e) => update(i, { height_mm: Number(e.target.value.replace(/\D/g, "")) })} placeholder="e.g. 1500" /></td>
                   <td className="px-1 py-1"><input aria-label="Quantity" inputMode="numeric" className={cell} value={p.quantity || ""} onChange={(e) => update(i, { quantity: Number(e.target.value.replace(/\D/g, "")) })} /></td>
                   <td className="px-1 py-1"><input aria-label="Floor" className={cell} value={p.floor_level ?? ""} onChange={(e) => update(i, { floor_level: e.target.value })} placeholder="—" /></td>
                   <td className="px-1 py-1">
