@@ -6,14 +6,14 @@ export class ApiError extends Error {
   }
 }
 
-// Empty = same origin (Vite dev proxy / Netlify proxy). Set VITE_API_URL to call a backend directly.
-const API_BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "");
+// Always same origin: Vite dev proxy locally, netlify.toml /api/* proxy in production
+// (a cross-origin backend URL would break the SameSite=Lax auth cookie and CORS).
 
 async function request<T>(method: string, url: string, body?: unknown, extraHeaders?: Record<string, string>): Promise<T> {
   const isForm = body instanceof FormData;
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/api/v1${url}`, {
+    res = await fetch(`/api/v1${url}`, {
       method,
       headers: { ...(isForm || body === undefined ? {} : { "Content-Type": "application/json" }), ...(extraHeaders ?? {}) },
       body: isForm ? (body as FormData) : body === undefined ? undefined : JSON.stringify(body),

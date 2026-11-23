@@ -9,3 +9,6 @@ __pycache__/
 
 # Deployment secrets
 .env
+
+# Local Netlify folder
+.netlify

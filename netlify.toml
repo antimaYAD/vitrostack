@@ -3,6 +3,11 @@
   command = "npm ci --include=dev && npm run build"
   publish = "dist"
 
+# The backend URL is public (it is in the redirect below), not a secret. VITE_API_URL is set in the
+# Netlify UI but unused by the app; omit it from secrets scanning so the deploy is not blocked.
+[build.environment]
+  SECRETS_SCAN_OMIT_KEYS = "VITE_API_URL"
+
 # Proxy API calls to the FastAPI backend on Render. Same-origin for the browser,
 # so the SameSite=Lax auth cookie works without CORS changes. Must come before the SPA rule.
 [[redirects]]
