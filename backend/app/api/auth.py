@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .. import auth
-from ..db import User, get_db, uid
+from ..db import DEFAULT_ORG, User, get_db
 
 router = APIRouter(prefix="/api/v1/auth")
 
@@ -19,7 +19,7 @@ class LoginIn(BaseModel):
 
 
 class RegisterIn(BaseModel):
-    company: str = Field(min_length=2, max_length=120)
+    company: str = Field(default="", max_length=120)  # ignored; kept so older clients still work
     name: str = Field(min_length=1, max_length=120)
     email: str = Field(min_length=3, max_length=200)
     password: str = Field(max_length=200)
@@ -40,7 +40,7 @@ def options():
 
 @router.post("/register", status_code=201)
 def register(body: RegisterIn, request: Request, response: Response, db: Session = Depends(get_db)):
-    """Create a new company workspace; the person signing up becomes its first admin."""
+    """Self sign-up: joins the company workspace as an estimator. Only an admin can grant admin rights."""
     if not auth.ALLOW_SIGNUP:
         raise HTTPException(403, "Sign-up is disabled. Ask your admin for an account.")
     email = body.email.strip().lower()
@@ -49,15 +49,14 @@ def register(body: RegisterIn, request: Request, response: Response, db: Session
     if db.scalar(select(User).where(func.lower(User.email) == email)):
         raise ValueError("An account with this email already exists. Sign in instead.")
     auth.check_password_policy(body.password)
-    org = f"org_{uid()}"
-    db.add(User(organization_id=org, name=body.name.strip(), email=email,
-                password_hash=auth.hash_password(body.password), role="admin"))
+    db.add(User(organization_id=DEFAULT_ORG, name=body.name.strip(), email=email,
+                password_hash=auth.hash_password(body.password), role="estimator"))
     db.commit()
     _, token, max_age = auth.login(db, email, body.password, body.remember, request.headers.get("user-agent"))
     response.set_cookie(auth.COOKIE, token, max_age=max_age, httponly=True, samesite="lax",
                         secure=auth.COOKIE_SECURE, path="/")
     user = db.scalar(select(User).where(User.email == email))
-    return {"user": auth.public_user(user), "company": body.company.strip()}
+    return {"user": auth.public_user(user)}
 
 
 @router.post("/login")

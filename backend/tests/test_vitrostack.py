@@ -156,13 +156,15 @@ def test_admin_user_management():
         assert c2.post("/api/v1/auth/login", json={"email": "lead@example.com", "password": temp}).status_code == 401
 
 
-def test_register_creates_isolated_workspace():
+def test_register_joins_company_as_estimator():
     with TestClient(app) as c:
-        r = c.post("/api/v1/auth/register", json={"company": "Glassworks", "name": "Asha", "email": "asha@glassworks.in", "password": "secret123"})
+        r = c.post("/api/v1/auth/register", json={"name": "Asha", "email": "asha@glassworks.in", "password": "secret123"})
         assert r.status_code == 201, r.text
-        assert r.json()["user"]["role"] == "admin"
-        assert c.get("/api/v1/projects").json() == []  # new tenant sees none of the demo org's data
-        assert c.get("/api/v1/admin/users").status_code == 200
+        assert r.json()["user"]["role"] == "estimator"  # sign-ups never get admin
+        assert c.get("/api/v1/projects").status_code == 200
+        assert c.get("/api/v1/admin/users").status_code == 403
+        assert c.post("/api/v1/offcuts", json={"width_mm": 500, "height_mm": 500}).status_code == 403
+        assert c.delete("/api/v1/offcuts/1").status_code == 403
         dup = c.post("/api/v1/auth/register", json={"company": "Other Co", "name": "Y", "email": "asha@glassworks.in", "password": "secret123"})
         assert dup.status_code == 400
 

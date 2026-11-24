@@ -10,7 +10,7 @@ import { passwordProblem } from "../components/AccountModals";
 export default function Register() {
   const { user, loading, setUser } = useAuth();
   const nav = useNavigate();
-  const [f, setF] = useState({ company: "", name: "", email: "", password: "" });
+  const [f, setF] = useState({ name: "", email: "", password: "" });
   const [show, setShow] = useState(false);
   const [touched, setTouched] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -22,7 +22,6 @@ export default function Register() {
   if (!loading && user) return <Navigate to="/" replace />;
 
   const errs = {
-    company: f.company.trim().length < 2 ? "Enter your company name" : null,
     name: !f.name.trim() ? "Enter your name" : null,
     email: !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email.trim()) ? "Enter a valid email" : null,
     password: passwordProblem(f.password),
@@ -40,9 +39,9 @@ export default function Register() {
     setBusy(true);
     setError(null);
     try {
-      const r = await api.post<{ user: User; company: string }>("/auth/register", { ...f, remember: true });
+      const r = await api.post<{ user: User }>("/auth/register", { ...f, remember: true });
       setUser(r.user);
-      toast.success(`Welcome to VitroStack, ${r.user.name.split(" ")[0]}`, { description: `${r.company} workspace created. You're its admin. Invite your team from Admin → Users.` });
+      toast.success(`Welcome to VitroStack, ${r.user.name.split(" ")[0]}`, { description: "You've joined as an estimator. Ask an admin if you need admin access." });
       nav("/", { replace: true });
     } catch (err) {
       setError((err as Error).message);
@@ -70,7 +69,7 @@ export default function Register() {
             <path d="M9 8h6v16H9zM17 8h6v7h-6zM17 17h6v7h-6z" className="fill-white dark:fill-black" />
           </svg>
           <h1 className="mt-6 text-[32px] font-semibold tracking-tightest text-[#1d1d1f] dark:text-white">Create your account</h1>
-          <p className="mt-2 text-[17px] text-slate-500">Set up a workspace for your company. You'll be its admin.</p>
+          <p className="mt-2 text-[17px] text-slate-500">Join your company's VitroStack workspace.</p>
         </div>
 
         {allowed === false ? (
@@ -79,8 +78,7 @@ export default function Register() {
           </div>
         ) : (
           <form onSubmit={submit} className="space-y-4" noValidate>
-            {field("company", "Company", { placeholder: "Acme Glazing Pvt Ltd", autoComplete: "organization", autoFocus: true })}
-            {field("name", "Your name", { placeholder: "Priya Sharma", autoComplete: "name" })}
+            {field("name", "Your name", { placeholder: "Priya Sharma", autoComplete: "name", autoFocus: true })}
             {field("email", "Work email", { type: "email", placeholder: "priya@acmeglazing.in", autoComplete: "email" })}
             <div>
               <label htmlFor="r-password" className="mb-1.5 block text-[13px] font-medium text-slate-600 dark:text-slate-300">Password</label>
@@ -102,7 +100,7 @@ export default function Register() {
             <button type="submit" disabled={busy} className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-brand-600 text-[17px] text-white transition hover:bg-brand-500 disabled:opacity-60">
               {busy && <Loader2 className="h-4 w-4 animate-spin" />} Create account
             </button>
-            <p className="text-center text-xs text-slate-500">Joining an existing company? Ask its admin to add you instead.</p>
+            <p className="text-center text-xs text-slate-500">New accounts get estimator access. An admin can change your role under Admin → Users.</p>
           </form>
         )}
 

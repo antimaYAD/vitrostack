@@ -75,7 +75,7 @@ def set_offcut_count(oid: int, body: OffcutCountIn, db: Session = Depends(get_db
     return _offcut(o, _org_counts(db, org))
 
 
-@router.delete("/offcuts/{oid}", status_code=204)
+@router.delete("/offcuts/{oid}", status_code=204, dependencies=[Depends(auth.require_admin)])
 def delete_offcut(oid: int, db: Session = Depends(get_db), org: str = Depends(org_id)):
     o = db.get(Offcut, oid)
     if not o or o.organization_id != org:
