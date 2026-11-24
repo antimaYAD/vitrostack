@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from .. import auth
 from ..db import AgentSession, Organization, Project, User, get_db, uid
-from .users import _temp_password, checked_email
+from .users import PasswordSetIn, _temp_password, checked_email, set_password_for
 
 router = APIRouter(prefix="/api/v1/platform", dependencies=[Depends(auth.require_superadmin)])
 
@@ -140,6 +140,13 @@ def delete_admin(user_id: str, db: Session = Depends(get_db)):
     db.delete(u)
     db.commit()
     return _company(db, _get(db, org))
+
+
+@router.post("/admins/{user_id}/password")
+def set_admin_password(user_id: str, body: PasswordSetIn, db: Session = Depends(get_db)):
+    u = _admin(db, user_id)
+    set_password_for(db, u, body)
+    return _company(db, _get(db, u.organization_id))
 
 
 @router.post("/admins/{user_id}/reset-password")

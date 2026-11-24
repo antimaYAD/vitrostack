@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { Building2, KeyRound, MoreHorizontal, Pause, Pencil, Play, Plus, Trash2, UserPlus } from "lucide-react";
+import { Building2, ChevronDown, ChevronRight, Pause, Pencil, Play, Plus, UserPlus } from "lucide-react";
 import { api } from "../lib/api";
 import { cn, timeAgo, useApi } from "../lib/utils";
 import { Badge, Button, Card, EmptyState, ErrorState, Field, Input, Modal, PageHeader, Skeleton } from "../components/ui";
 import { TempPassword } from "./AdminUsers";
+import { ManageUserModal } from "../components/ManageUserModal";
 
 interface CompanyAdmin { id: string; name: string; email: string; active: boolean; must_change_password: boolean; last_login_at: string | null }
 interface Company {
@@ -63,34 +64,19 @@ function CompanyForm({ open, company, onClose, onCreated }: { open: boolean; com
   );
 }
 
-/** Rename a company, or edit a company admin's name and sign-in email. */
-function EditModal({ target, onClose, onSaved }: {
-  target: { kind: "company"; c: Company } | { kind: "admin"; a: CompanyAdmin; c: Company };
-  onClose: () => void; onSaved: () => void;
-}) {
-  const isAdmin = target.kind === "admin";
-  const [f, setF] = useState(isAdmin ? { name: target.a.name, email: target.a.email } : { name: target.c.name, email: "" });
+/** Rename a company. */
+function RenameModal({ c, onClose, onSaved }: { c: Company; onClose: () => void; onSaved: () => void }) {
+  const [name, setName] = useState(c.name);
   const [touched, setTouched] = useState(false);
   const [saving, setSaving] = useState(false);
-  const errs = {
-    name: f.name.trim().length < (isAdmin ? 1 : 2) ? (isAdmin ? "Enter the admin's name" : "Enter the company name") : null,
-    email: isAdmin && !EMAIL.test(f.email.trim()) ? "Enter a valid email" : null,
-  };
+  const err = name.trim().length < 2 ? "Enter the company name" : null;
   const save = async () => {
     setTouched(true);
-    if (errs.name || errs.email) return;
+    if (err) return;
     setSaving(true);
     try {
-      if (target.kind === "admin") {
-        const body: Record<string, string> = {};
-        if (f.name.trim() !== target.a.name) body.name = f.name.trim();
-        if (f.email.trim().toLowerCase() !== target.a.email) body.email = f.email.trim();
-        if (Object.keys(body).length) await api.patch(`/platform/admins/${target.a.id}`, body);
-        toast.success(`${f.name.trim()} updated`, { description: body.email ? "They now sign in with the new email." : undefined });
-      } else {
-        if (f.name.trim() !== target.c.name) await api.patch(`/platform/companies/${target.c.id}`, { name: f.name.trim() });
-        toast.success("Company renamed");
-      }
+      if (name.trim() !== c.name) await api.patch(`/platform/companies/${c.id}`, { name: name.trim() });
+      toast.success("Company renamed");
       onSaved();
       onClose();
     } catch (e) {
@@ -100,49 +86,35 @@ function EditModal({ target, onClose, onSaved }: {
     }
   };
   return (
-    <Modal open onClose={onClose} title={isAdmin ? `Edit ${target.a.name}` : `Rename ${target.c.name}`}
-      description={isAdmin ? `Admin of ${target.c.name}.` : "The new name shows to everyone in this company."}
-      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button loading={saving} onClick={save}>Save changes</Button></>}>
-      <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); save(); }}>
-        <Field label={isAdmin ? "Full name" : "Company name"} htmlFor="ed-name" error={touched ? errs.name : null}>
-          <Input id="ed-name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} invalid={touched && !!errs.name} />
+    <Modal open onClose={onClose} title={`Rename ${c.name}`} description="The new name shows to everyone in this company."
+      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button loading={saving} onClick={save}>Save</Button></>}>
+      <form onSubmit={(e) => { e.preventDefault(); save(); }}>
+        <Field label="Company name" htmlFor="rn-name" error={touched ? err : null}>
+          <Input id="rn-name" value={name} onChange={(e) => setName(e.target.value)} invalid={touched && !!err} />
         </Field>
-        {isAdmin && <Field label="Work email" htmlFor="ed-email" error={touched ? errs.email : null} hint="This is their sign-in email.">
-          <Input id="ed-email" type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} invalid={touched && !!errs.email} />
-        </Field>}
-        <button type="submit" className="hidden" />
       </form>
     </Modal>
   );
 }
 
-function CompanyMenu({ c, onChanged, onAddAdmin, onTemp, onSuspend, onRename }: {
-  c: Company; onChanged: () => void; onAddAdmin: () => void; onTemp: (email: string, pw: string) => void; onSuspend: () => void; onRename: () => void;
+function CompanyMenu({ c, onChanged, onAddAdmin, onSuspend, onRename }: {
+  c: Company; onChanged: () => void; onAddAdmin: () => void; onSuspend: () => void; onRename: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const item = "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-slate-800";
-  const reset = (a: CompanyAdmin) => {
-    setOpen(false);
-    api.post<{ admin_email: string; temporary_password: string }>(`/platform/admins/${a.id}/reset-password`)
-      .then((r) => { onTemp(r.admin_email, r.temporary_password); onChanged(); })
-      .catch((e) => toast.error(e.message));
-  };
   const resume = () => {
     setOpen(false);
     api.patch(`/platform/companies/${c.id}`, { status: "active" }).then(() => { toast.success(`${c.name} reactivated`); onChanged(); }).catch((e) => toast.error(e.message));
   };
   return (
     <div className="relative">
-      <button onClick={() => setOpen((o) => !o)} className="rounded-full p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800" aria-label={`Actions for ${c.name}`} aria-expanded={open}><MoreHorizontal className="h-4 w-4" /></button>
+      <Button variant="secondary" size="sm" onClick={() => setOpen((o) => !o)} aria-label={`Actions for ${c.name}`} aria-expanded={open}>Actions <ChevronDown className="h-3.5 w-3.5" /></Button>
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           <div className="absolute right-0 z-20 mt-1 w-64 rounded-2xl bg-white p-1.5 shadow-pop ring-1 ring-black/5 dark:bg-slate-900 dark:ring-white/10">
             <button className={item} onClick={() => { setOpen(false); onRename(); }}><Pencil className="h-4 w-4" /> Rename company</button>
             <button className={item} onClick={() => { setOpen(false); onAddAdmin(); }}><UserPlus className="h-4 w-4" /> Add an admin</button>
-            {c.admins.map((a) => (
-              <button key={a.id} className={item} onClick={() => reset(a)}><KeyRound className="h-4 w-4 shrink-0" /> <span className="truncate">Reset password: {a.name}</span></button>
-            ))}
             <div className="my-1 h-px bg-slate-100 dark:bg-slate-800" />
             {c.status === "active"
               ? <button className={cn(item, "text-[#d70015]")} onClick={() => { setOpen(false); onSuspend(); }}><Pause className="h-4 w-4" /> Suspend company</button>
@@ -159,19 +131,12 @@ export default function Platform() {
   const [formFor, setFormFor] = useState<Company | null | "new">(null);
   const [temp, setTemp] = useState<{ email: string; password: string } | null>(null);
   const [suspending, setSuspending] = useState<Company | null>(null);
-  const [editing, setEditing] = useState<{ kind: "company"; c: Company } | { kind: "admin"; a: CompanyAdmin; c: Company } | null>(null);
-  const [deleting, setDeleting] = useState<{ a: CompanyAdmin; c: Company } | null>(null);
+  const [renaming, setRenaming] = useState<Company | null>(null);
+  // Ids, not objects, so the dialog shows fresh data after each save.
+  const [managingId, setManagingId] = useState<{ company: string; admin: string } | null>(null);
+  const managedCompany = data?.find((c) => c.id === managingId?.company) ?? null;
+  const managedAdmin = managedCompany?.admins.find((a) => a.id === managingId?.admin) ?? null;
 
-  const deleteAdmin = async (a: CompanyAdmin, c: Company) => {
-    setDeleting(null);
-    try {
-      await api.del(`/platform/admins/${a.id}`);
-      toast.success(`${a.name} deleted`, { description: `They can no longer sign in to ${c.name}.` });
-      reload(true);
-    } catch (e) {
-      toast.error((e as Error).message);
-    }
-  };
 
   const suspend = async (c: Company) => {
     setSuspending(null);
@@ -192,7 +157,7 @@ export default function Platform() {
       <PageHeader title="Companies" subtitle={data ? `${active} active of ${data.length} · ${users} users across all companies` : "Every company on VitroStack and its admins."}
         actions={<Button icon={<Plus className="h-4 w-4" />} onClick={() => setFormFor("new")}>New company</Button>} />
 
-      <p className="mb-5 max-w-3xl text-sm text-slate-500">You create each company and its first admin. That admin adds their own estimators and architects under Admin → Users. As superadmin you see company names, users and counts only, never their projects, prices or offcuts.</p>
+      <p className="mb-5 max-w-3xl text-sm text-slate-500">You create each company and its first admin. Click an admin to edit their details, change their password or remove them. That admin adds their own estimators and architects under Admin → Users. As superadmin you see company names, users and counts only, never their projects, prices or offcuts.</p>
 
       {error && <ErrorState message={error} onRetry={() => reload()} />}
       <Card className="overflow-hidden">
@@ -202,7 +167,7 @@ export default function Platform() {
         {data && data.length > 0 && (
           <div className="overflow-x-auto">
             <table className="table-base">
-              <thead><tr><th>Company</th><th>Admins</th><th className="text-right">Users</th><th className="text-right">Projects</th><th>Status</th><th>Created</th><th className="w-12" /></tr></thead>
+              <thead><tr><th>Company</th><th>Admins</th><th className="text-right">Users</th><th className="text-right">Projects</th><th>Status</th><th>Created</th><th className="w-28" /></tr></thead>
               <tbody>
                 {data.map((c) => (
                   <tr key={c.id} className={cn(c.status === "suspended" && "opacity-60")}>
@@ -211,23 +176,25 @@ export default function Platform() {
                       <p className="text-xs text-slate-500">{c.roles.estimator} estimators · {c.roles.architect} architects</p>
                     </td>
                     <td>
-                      {c.admins.length === 0 ? <span className="text-sm text-[#d70015]">No admin</span> : c.admins.map((a) => (
-                        <div key={a.id} className="group flex items-center gap-1 text-sm">
-                          <span>{a.name} <span className="text-slate-500">· {a.email}</span></span>
-                          {a.must_change_password && <Badge tone="amber" className="ml-1">Invite pending</Badge>}
-                          {!a.active && <Badge tone="slate" className="ml-1">Deactivated</Badge>}
-                          <button onClick={() => setEditing({ kind: "admin", a, c })} aria-label={`Edit ${a.name}`} title="Edit name or email"
-                            className="ml-1 rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800"><Pencil className="h-3.5 w-3.5" /></button>
-                          <button onClick={() => setDeleting({ a, c })} aria-label={`Delete ${a.name}`} title="Delete admin"
-                            className="rounded-full p-1 text-slate-400 hover:bg-rose-50 hover:text-[#d70015] dark:hover:bg-rose-950/40"><Trash2 className="h-3.5 w-3.5" /></button>
+                      {c.admins.length === 0 ? <span className="text-sm text-[#d70015]">No admin</span> : (
+                        <div className="flex flex-col items-start gap-1">
+                          {c.admins.map((a) => (
+                            <button key={a.id} onClick={() => setManagingId({ company: c.id, admin: a.id })} title="Edit, change password or delete"
+                              className="group -mx-2 flex max-w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-sm transition hover:bg-slate-100 dark:hover:bg-slate-800">
+                              <span className="min-w-0 truncate"><span className="font-medium">{a.name}</span> <span className="text-slate-500">· {a.email}</span></span>
+                              {a.must_change_password && <Badge tone="amber">Invite pending</Badge>}
+                              {!a.active && <Badge tone="slate">Deactivated</Badge>}
+                              <span className="flex shrink-0 items-center text-xs font-medium text-brand-600 opacity-70 group-hover:opacity-100 dark:text-brand-400">Manage <ChevronRight className="h-3.5 w-3.5" /></span>
+                            </button>
+                          ))}
                         </div>
-                      ))}
+                      )}
                     </td>
                     <td className="text-right tabular-nums">{c.user_count}</td>
                     <td className="text-right tabular-nums">{c.project_count}</td>
                     <td>{c.status === "active" ? <Badge tone="emerald" dot>Active</Badge> : <Badge tone="rose">Suspended</Badge>}</td>
                     <td className="whitespace-nowrap text-sm text-slate-500">{c.created_at ? timeAgo(c.created_at) : "—"}</td>
-                    <td><CompanyMenu c={c} onChanged={() => reload(true)} onAddAdmin={() => setFormFor(c)} onTemp={(email, password) => setTemp({ email, password })} onSuspend={() => setSuspending(c)} onRename={() => setEditing({ kind: "company", c })} /></td>
+                    <td className="text-right"><CompanyMenu c={c} onChanged={() => reload(true)} onAddAdmin={() => setFormFor(c)} onSuspend={() => setSuspending(c)} onRename={() => setRenaming(c)} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -239,12 +206,13 @@ export default function Platform() {
       <CompanyForm open={formFor !== null} company={formFor === "new" ? null : formFor} onClose={() => setFormFor(null)}
         onCreated={(r) => { setTemp({ email: r.admin_email, password: r.temporary_password }); toast.success(`${r.company.name} is ready`); reload(true); }} />
       {temp && <TempPassword email={temp.email} password={temp.password} onClose={() => setTemp(null)} />}
-      {editing && <EditModal target={editing} onClose={() => setEditing(null)} onSaved={() => reload(true)} />}
-      <Modal open={!!deleting} onClose={() => setDeleting(null)} title={`Delete ${deleting?.a.name ?? ""}?`}
-        description={`They lose access to ${deleting?.c.name ?? "the company"} immediately. The company's projects stay.`}
-        footer={<><Button variant="secondary" onClick={() => setDeleting(null)}>Cancel</Button><Button variant="danger" onClick={() => deleting && deleteAdmin(deleting.a, deleting.c)}>Delete admin</Button></>}>
-        <p className="text-sm text-slate-600 dark:text-slate-400">A company must keep at least one active admin, so add another admin before deleting the last one.</p>
-      </Modal>
+      {renaming && <RenameModal c={renaming} onClose={() => setRenaming(null)} onSaved={() => reload(true)} />}
+      {managedAdmin && managedCompany && (
+        <ManageUserModal key={managedAdmin.id} person={managedAdmin} basePath={`/platform/admins/${managedAdmin.id}`}
+          subtitle={`Admin of ${managedCompany.name}`} canDeactivate={false}
+          deleteNote={`They lose access to ${managedCompany.name} immediately. The company's projects stay. A company must keep at least one active admin, so add another admin first if this is the only one.`}
+          onClose={() => setManagingId(null)} onChanged={() => reload(true)} onTemp={(email, password) => setTemp({ email, password })} />
+      )}
       <Modal open={!!suspending} onClose={() => setSuspending(null)} title={`Suspend ${suspending?.name ?? ""}?`}
         description="Everyone in this company is signed out and can't sign in until you reactivate it. No data is deleted."
         footer={<><Button variant="secondary" onClick={() => setSuspending(null)}>Cancel</Button><Button variant="danger" onClick={() => suspending && suspend(suspending)}>Suspend company</Button></>}>

@@ -233,6 +233,17 @@ def test_edit_and_delete_users():
         assert su.patch(f"/api/v1/platform/companies/{c['id']}", json={"name": "EditCo Renamed"}).json()["name"] == "EditCo Renamed"
         r = su.delete(f"/api/v1/platform/admins/{first}")
         assert r.status_code == 200 and [a["id"] for a in r.json()["admins"]] == [a2]
+        assert su.post(f"/api/v1/platform/admins/{a2}/password", json={"password": "short"}).status_code == 400
+        r = su.post(f"/api/v1/platform/admins/{a2}/password", json={"password": "NewPass2024", "must_change": False})
+        assert r.status_code == 200 and not r.json()["admins"][0]["must_change_password"]
+    with client("a.two@editco.in", "NewPass2024") as a:
+        assert a.get("/api/v1/auth/me").json()["user"]["must_change_password"] is False
+        me_id = a.get("/api/v1/auth/me").json()["user"]["id"]
+        assert a.post(f"/api/v1/admin/users/{me_id}/password", json={"password": "Another2024"}).status_code == 400
+        e = a.post("/api/v1/admin/users", json={"name": "E", "email": "e@editco.in", "role": "estimator"}).json()["user"]["id"]
+        assert a.post(f"/api/v1/admin/users/{e}/password", json={"password": "Estim8tor99"}).status_code == 200
+    with client("e@editco.in", "Estim8tor99") as e_:
+        assert e_.get("/api/v1/auth/me").json()["user"]["must_change_password"] is True
 
 
 def test_estimator_can_work_but_not_admin():

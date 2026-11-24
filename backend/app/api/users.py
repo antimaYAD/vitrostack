@@ -28,6 +28,20 @@ class UserPatch(BaseModel):
     active: bool | None = None
 
 
+class PasswordSetIn(BaseModel):
+    password: str = Field(max_length=200)
+    must_change: bool = True  # ask them to pick their own password at next sign-in
+
+
+def set_password_for(db: Session, u: User, body: PasswordSetIn) -> None:
+    """An admin (or the superadmin) sets someone else's password; all their sessions are signed out."""
+    auth.check_password_policy(body.password)
+    u.password_hash = auth.hash_password(body.password)
+    u.must_change_password = body.must_change
+    db.commit()
+    auth.revoke_all(db, u.id)
+
+
 def _get(db: Session, uid: str, admin: User) -> User:
     u = db.get(User, uid)
     if not u or u.organization_id != admin.organization_id:
@@ -96,6 +110,15 @@ def update_user(uid: str, body: UserPatch, db: Session = Depends(get_db), admin:
     db.commit()
     if body.active is False:
         auth.revoke_all(db, u.id)
+    return {"user": auth.public_user(u)}
+
+
+@router.post("/{uid}/password")
+def set_password(uid: str, body: PasswordSetIn, db: Session = Depends(get_db), admin: User = Depends(auth.require_admin)):
+    u = _get(db, uid, admin)
+    if u.id == admin.id:
+        raise ValueError("Change your own password from the account menu")
+    set_password_for(db, u, body)
     return {"user": auth.public_user(u)}
 
 
