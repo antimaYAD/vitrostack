@@ -29,7 +29,9 @@ else:
     _pool_opts = {"pool_pre_ping": True, "pool_recycle": 300, "pool_size": 5, "max_overflow": 5}
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False} if IS_SQLITE else {},
+    # prepare_threshold=None: no server-side prepared statements, which PgBouncer-style poolers in
+    # transaction mode (e.g. Supabase's port-6543 pooler) can't handle.
+    connect_args={"check_same_thread": False} if IS_SQLITE else {"prepare_threshold": None},
     **_pool_opts,
 )
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
