@@ -223,9 +223,13 @@ export function Kbd({ children }: { children: ReactNode }) {
 export function Modal({ open, onClose, title, description, children, footer, size = "md" }: { open: boolean; onClose: () => void; title: string; description?: ReactNode; children: ReactNode; footer?: ReactNode; size?: "md" | "lg" | "xl" }) {
   const titleId = useId();
   const panel = useRef<HTMLDivElement>(null);
+  // Callers often pass a new onClose on every render. Keep it in a ref so the effect below runs only when the
+  // modal opens; otherwise each keystroke re-ran it and moved focus back to the first field.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onCloseRef.current();
     document.addEventListener("keydown", onKey);
     const prev = document.activeElement as HTMLElement | null;
     setTimeout(() => panel.current?.querySelector<HTMLElement>("input,select,textarea,button:not([data-close])")?.focus(), 30);
@@ -235,7 +239,7 @@ export function Modal({ open, onClose, title, description, children, footer, siz
       document.body.style.overflow = "";
       prev?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-6" role="dialog" aria-modal="true" aria-labelledby={titleId}>
