@@ -196,6 +196,19 @@ def seed_users():
                 log.warning("Created DEMO accounts (see DEMO_ACCOUNTS). Change these passwords or set "
                             "ADMIN_EMAIL/ADMIN_PASSWORD and SUPERADMIN_EMAIL/SUPERADMIN_PASSWORD before going live.")
             db.flush()
+        if DEMO_MODE:
+            # Keep the accounts listed on the sign-in page working, even on a database that already had users.
+            for a in DEMO_ACCOUNTS:
+                u = db.scalar(select(User).where(func.lower(User.email) == a["email"]))
+                if not u:
+                    db.add(User(organization_id=PLATFORM_ORG if a["role"] == SUPERADMIN else DEFAULT_ORG,
+                                name=a["name"], email=a["email"], password_hash=hash_password(a["password"]),
+                                role=a["role"]))
+                    log.info("Created demo account %s", a["email"])
+                elif not u.active or u.must_change_password or not verify_password(a["password"], u.password_hash):
+                    u.password_hash, u.active, u.must_change_password = hash_password(a["password"]), True, False
+                    log.info("Restored demo account %s", a["email"])
+            db.flush()
         for oid in db.scalars(select(User.organization_id).distinct()).all():
             if oid != PLATFORM_ORG and not db.get(Organization, oid):
                 name = os.getenv("COMPANY_NAME", "VitroStack Demo") if oid == DEFAULT_ORG else f"Company {oid[-6:]}"

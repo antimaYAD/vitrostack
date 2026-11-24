@@ -431,3 +431,19 @@ def test_facade_infills_and_doors():
         msgs = " ".join(i["message"] for i in c.post("/api/v1/canvas/validate-wind-load", json=bad).json()["issues"])
         assert "bottom pane" in msgs and "can't be silicone butt-jointed" in msgs and "can't open" in msgs
         assert c.post("/api/v1/canvas/export-dxf", json=data).status_code == 200
+
+
+def test_demo_accounts_are_restored_at_startup():
+    from app import auth as A
+    from app.db import SessionLocal, User
+    from sqlalchemy import select
+    with SessionLocal() as db:  # simulate an older database: a missing and a changed demo account
+        db.delete(db.scalar(select(User).where(User.email == "architect@vitrostack.local")))
+        est = db.scalar(select(User).where(User.email == "estimator@vitrostack.local"))
+        est.password_hash, est.must_change_password = A.hash_password("Somethingelse1"), True
+        db.commit()
+    A.seed_users()
+    for email, pw in (("architect@vitrostack.local", "architect123"), ("estimator@vitrostack.local", "estimator123")):
+        with client(email, pw) as c:
+            me = c.get("/api/v1/auth/me").json()["user"]
+            assert me["email"] == email and not me["must_change_password"]
