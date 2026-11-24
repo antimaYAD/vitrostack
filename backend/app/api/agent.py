@@ -11,7 +11,7 @@ from ..agent import orchestrator
 from ..agent.tools import TOOLS
 from ..db import AgentSession, AgentToolLog, User, get_db
 from ..uploads import read_upload
-from .deps import org_id, protected_router
+from .deps import editor, org_id, protected_router
 
 router = protected_router()
 
@@ -34,7 +34,7 @@ def _session(db, sid, org, user: User) -> AgentSession:
     return s
 
 
-@router.get("/agent/sessions")
+@router.get("/agent/sessions", dependencies=[editor])
 def agent_sessions(db: Session = Depends(get_db), org: str = Depends(org_id), user: User = Depends(auth.current_user)):
     rows = db.scalars(select(AgentSession).where(AgentSession.organization_id == org, AgentSession.channel == "web",
                                                  AgentSession.user_id == user.id)
@@ -42,20 +42,20 @@ def agent_sessions(db: Session = Depends(get_db), org: str = Depends(org_id), us
     return [{"id": s.id, "title": s.title, "project_id": s.project_id, "updated_at": s.updated_at.isoformat()} for s in rows]
 
 
-@router.get("/agent/sessions/{sid}")
+@router.get("/agent/sessions/{sid}", dependencies=[editor])
 def agent_session(sid: str, db: Session = Depends(get_db), org: str = Depends(org_id), user: User = Depends(auth.current_user)):
     s = _session(db, sid, org, user)
     return {"id": s.id, "title": s.title, "project_id": s.project_id, "messages": orchestrator.history(db, s.id)}
 
 
-@router.delete("/agent/sessions/{sid}", status_code=204)
+@router.delete("/agent/sessions/{sid}", status_code=204, dependencies=[editor])
 def delete_session(sid: str, db: Session = Depends(get_db), org: str = Depends(org_id), user: User = Depends(auth.current_user)):
     s = _session(db, sid, org, user)
     db.delete(s)
     db.commit()
 
 
-@router.post("/agent/chat")
+@router.post("/agent/chat", dependencies=[editor])
 def agent_chat(body: ChatIn, db: Session = Depends(get_db), org: str = Depends(org_id), user: User = Depends(auth.current_user)):
     if not body.message.strip() and not body.attachments:
         raise ValueError("Type a message or attach a schedule")
@@ -70,7 +70,7 @@ def agent_chat(body: ChatIn, db: Session = Depends(get_db), org: str = Depends(o
     return {"session_id": s.id, "title": s.title, "project_id": s.project_id, "message": msg}
 
 
-@router.post("/agent/sessions/{sid}/actions/{action_id}")
+@router.post("/agent/sessions/{sid}/actions/{action_id}", dependencies=[editor])
 def agent_action(sid: str, action_id: str, body: ActionIn, db: Session = Depends(get_db), org: str = Depends(org_id),
                  user: User = Depends(auth.current_user)):
     s = _session(db, sid, org, user)
@@ -84,7 +84,7 @@ def agent_tools():
              "requires_confirmation": t.requires_confirmation} for t in TOOLS.values()]
 
 
-@router.get("/agent/tool-logs")
+@router.get("/agent/tool-logs", dependencies=[editor])
 def tool_logs(limit: int = Query(50, le=200), db: Session = Depends(get_db), org: str = Depends(org_id)):
     rows = db.scalars(select(AgentToolLog).where(AgentToolLog.organization_id == org)
                       .order_by(AgentToolLog.id.desc()).limit(limit)).all()

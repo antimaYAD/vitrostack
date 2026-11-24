@@ -55,7 +55,7 @@ def create_user(body: UserIn, db: Session = Depends(get_db), admin: User = Depen
     if "@" not in email or "." not in email.split("@")[-1]:
         raise ValueError("Enter a valid email address")
     if body.role not in auth.ROLES:
-        raise ValueError("Role must be admin or estimator")
+        raise ValueError("Role must be admin, estimator or architect")
     if db.scalar(select(User).where(func.lower(User.email) == email)):
         raise ValueError("A user with this email already exists")
     pw = body.password or _temp_password()
@@ -77,7 +77,7 @@ def update_user(uid: str, body: UserPatch, db: Session = Depends(get_db), admin:
         raise ValueError("At least one active admin is required")
     if body.role is not None:
         if body.role not in auth.ROLES:
-            raise ValueError("Role must be admin or estimator")
+            raise ValueError("Role must be admin, estimator or architect")
         u.role = body.role
     if body.name is not None:
         u.name = body.name.strip()

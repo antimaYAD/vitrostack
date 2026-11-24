@@ -34,7 +34,7 @@ export default function Overview() {
   const { data, error, loading, reload } = useApi<Dash>("/dashboard");
   const [q, setQ] = useState("");
   const nav = useNavigate();
-  const { user } = useAuth();
+  const { user, canEdit } = useAuth();
 
   const ask = (text: string) => text.trim() && nav(`/copilot?q=${encodeURIComponent(text.trim())}`);
 
@@ -48,8 +48,10 @@ export default function Overview() {
           <span className="bg-gradient-to-r from-[#0071e3] via-[#5e5ce6] to-[#bf5af2] bg-clip-text text-transparent">In one sentence.</span>
         </h1>
         <p className="mx-auto mt-5 max-w-xl text-[19px] leading-snug text-slate-500 dark:text-slate-400">
-          Describe a job. VitroCore checks it against IS 875, optimizes the cut and drafts the quote.
+          {canEdit ? "Describe a job. VitroCore checks it against IS 875, optimizes the cut and drafts the quote."
+            : "Open the designer to draw elevations, or check wind loads and silicone in Engineering."}
         </p>
+        {canEdit && <>
         <form onSubmit={(e) => { e.preventDefault(); ask(q); }} className="mx-auto mt-9 flex max-w-2xl items-center gap-2 rounded-full bg-white p-1.5 pl-5 shadow-[0_4px_24px_rgba(0,0,0,.08)] ring-1 ring-black/5 transition focus-within:shadow-[0_6px_30px_rgba(0,113,227,.18)] focus-within:ring-brand-600/40 dark:bg-slate-900 dark:ring-white/10">
           <Sparkles className="h-5 w-5 shrink-0 text-brand-600 dark:text-brand-400" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Quote 45 windows 2400×1500 mm, 12th floor, Mumbai" aria-label="Ask VitroCore"
@@ -61,6 +63,7 @@ export default function Overview() {
             <button key={s} onClick={() => ask(s)} className="link inline-flex items-center gap-1">{s} <ArrowRight className="h-3.5 w-3.5" /></button>
           ))}
         </div>
+        </>}
       </section>
 
       {error && <ErrorState message={error} onRetry={() => reload()} />}
@@ -107,7 +110,7 @@ export default function Overview() {
             {loading && <div className="space-y-3 p-5">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-12" />)}</div>}
             {data && data.recent_projects.length === 0 && (
               <EmptyState icon={<FolderKanban className="h-6 w-6" />} title="No projects yet" body="Ask VitroCore to quote a job, or create a project manually."
-                action={<Link to="/projects?new=1"><Button>New project</Button></Link>} />
+                action={canEdit ? <Link to="/projects?new=1"><Button>New project</Button></Link> : undefined} />
             )}
             <ul className="divide-y divide-slate-100 dark:divide-slate-800">
               {data?.recent_projects.map((p) => (

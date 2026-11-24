@@ -5,8 +5,10 @@ import type { ProjectSummary } from "../lib/api";
 import { inr, num, STATUS_META, timeAgo, useApi } from "../lib/utils";
 import { Button, Card, EmptyState, ErrorState, Input, PageHeader, SafetyBadge, Segmented, Skeleton, StatusBadge } from "../components/ui";
 import { NewProjectModal } from "../components/ProjectForm";
+import { useAuth } from "../lib/auth";
 
 export default function Projects() {
+  const { canEdit } = useAuth();
   const { data, error, loading, reload } = useApi<ProjectSummary[]>("/projects");
   const [params, setParams] = useSearchParams();
   const [q, setQ] = useState("");
@@ -29,10 +31,10 @@ export default function Projects() {
   return (
     <div>
       <PageHeader title="Projects" subtitle="Every project moves through Schedule → IS 875 check → Cutting plan → Quote."
-        actions={<>
+        actions={canEdit ? <>
           <Link to="/copilot"><Button variant="secondary" icon={<Sparkles className="h-4 w-4" />}>Create with copilot</Button></Link>
           <Button icon={<Plus className="h-4 w-4" />} onClick={() => setParams({ new: "1" })}>New project</Button>
-        </>} />
+        </> : undefined} />
 
       <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="overflow-x-auto">
@@ -57,7 +59,7 @@ export default function Projects() {
         <Card>
           {data.length === 0 ? (
             <EmptyState icon={<FolderKanban className="h-6 w-6" />} title="No projects yet" body="Create one from a window schedule, or describe the job to VitroCore."
-              action={<Button icon={<Plus className="h-4 w-4" />} onClick={() => setParams({ new: "1" })}>New project</Button>} />
+              action={canEdit ? <Button icon={<Plus className="h-4 w-4" />} onClick={() => setParams({ new: "1" })}>New project</Button> : undefined} />
           ) : (
             <EmptyState icon={<Search className="h-6 w-6" />} title="No matching projects" body="Try a different search or status filter."
               action={<Button variant="secondary" onClick={() => { setQ(""); setStatus("all"); }}>Clear filters</Button>} />
@@ -119,7 +121,7 @@ export default function Projects() {
         </div>
       )}
 
-      <NewProjectModal open={newOpen} onClose={() => setParams({})} />
+      <NewProjectModal open={newOpen && canEdit} onClose={() => setParams({})} />
     </div>
   );
 }

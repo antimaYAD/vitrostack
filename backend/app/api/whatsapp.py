@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from .. import whatsapp
 from ..db import SiteEvent, get_db
-from .deps import org_id, protected_router
+from .deps import editor, org_id, protected_router
 
 public = APIRouter(prefix="/api/v1")  # Meta calls the webhook without a session
 router = protected_router()
@@ -41,7 +41,7 @@ async def wa_webhook(request: Request, db: Session = Depends(get_db)):
     return {"handled": len(handled)}
 
 
-@router.post("/whatsapp/simulate")
+@router.post("/whatsapp/simulate", dependencies=[editor])
 def wa_simulate(body: SimIn, db: Session = Depends(get_db), org: str = Depends(org_id)):
     return whatsapp.handle_incoming(db, body.phone, body.text, org)
 

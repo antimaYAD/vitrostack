@@ -2,22 +2,25 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Check, Copy, KeyRound, MoreHorizontal, Plus, ShieldCheck, Trash2, UserRound, Users } from "lucide-react";
 import { api } from "../lib/api";
-import { useAuth, type User } from "../lib/auth";
+import { useAuth, type Role as AnyRole, type User } from "../lib/auth";
 import { cn, timeAgo, useApi } from "../lib/utils";
 import { Badge, Button, Card, EmptyState, ErrorState, Field, Input, Modal, PageHeader, Segmented, Skeleton } from "../components/ui";
 import { AdminTabs } from "../components/AccountModals";
 
-type Role = "admin" | "estimator";
+/** Roles a company admin can give. The superadmin role exists only on the platform. */
+type Role = Exclude<AnyRole, "superadmin">;
 const ROLE_INFO: Record<Role, { label: string; desc: string }> = {
-  admin: { label: "Admin", desc: "Everything, plus pricing, user management and deleting projects." },
-  estimator: { label: "Estimator", desc: "Projects, copilot, quotes, offcuts and site ops. No admin area." },
+  admin: { label: "Admin", desc: "Everything, plus pricing, users, offcuts and deleting projects." },
+  estimator: { label: "Estimator", desc: "Projects, copilot, quotes and site ops. Views offcuts. No admin area." },
+  architect: { label: "Architect", desc: "Designer and engineering tools. Views projects without prices or quotes." },
 };
+const ROLES = Object.keys(ROLE_INFO) as Role[];
 
 function initials(name: string) {
   return name.split(/\s+/).map((p) => p[0]).join("").slice(0, 2).toUpperCase();
 }
 
-function TempPassword({ email, password, onClose }: { email: string; password: string; onClose: () => void }) {
+export function TempPassword({ email, password, onClose }: { email: string; password: string; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     try {
@@ -66,9 +69,11 @@ function RowMenu({ u, me, onChanged, onTemp }: { u: User; me: User; onChanged: (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           <div className="absolute right-0 z-20 mt-1 w-56 rounded-2xl bg-white p-1.5 shadow-pop ring-1 ring-black/5 dark:bg-slate-900 dark:ring-white/10">
-            <button className={item} disabled={self} onClick={() => run(() => api.patch(`/admin/users/${u.id}`, { role: u.role === "admin" ? "estimator" : "admin" }), u.role === "admin" ? `${u.name} is now an estimator` : `${u.name} is now an admin`)}>
-              <ShieldCheck className="h-4 w-4" /> {u.role === "admin" ? "Make estimator" : "Make admin"}
-            </button>
+            {ROLES.filter((r) => r !== u.role).map((r) => (
+              <button key={r} className={item} disabled={self} onClick={() => run(() => api.patch(`/admin/users/${u.id}`, { role: r }), `${u.name} is now ${r === "estimator" ? "an estimator" : r === "admin" ? "an admin" : "an architect"}`)}>
+                {r === "admin" ? <ShieldCheck className="h-4 w-4" /> : <UserRound className="h-4 w-4" />} Make {ROLE_INFO[r].label.toLowerCase()}
+              </button>
+            ))}
             <button className={item} onClick={() => { setOpen(false); api.post<{ temporary_password: string }>(`/admin/users/${u.id}/reset-password`).then((r) => { onTemp(u.email, r.temporary_password); onChanged(); }).catch((e) => toast.error(e.message)); }}>
               <KeyRound className="h-4 w-4" /> Reset password
             </button>
@@ -125,8 +130,8 @@ export default function AdminUsers() {
       <PageHeader eyebrow={<AdminTabs />} title="Users" subtitle="Who can sign in, and what they can do."
         actions={<Button icon={<Plus className="h-4 w-4" />} onClick={() => setOpen(true)}>Add user</Button>} />
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-2">
-        {(Object.keys(ROLE_INFO) as Role[]).map((r) => (
+      <div className="mb-6 grid gap-4 sm:grid-cols-3">
+        {ROLES.map((r) => (
           <Card key={r} className="flex gap-4 p-5">
             <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-full", r === "admin" ? "bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300" : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300")}>
               {r === "admin" ? <ShieldCheck className="h-5 w-5" /> : <UserRound className="h-5 w-5" />}
@@ -159,7 +164,7 @@ export default function AdminUsers() {
                         </div>
                       </div>
                     </td>
-                    <td><Badge tone={u.role === "admin" ? "brand" : "slate"}>{ROLE_INFO[u.role].label}</Badge></td>
+                    <td><Badge tone={u.role === "admin" ? "brand" : "slate"}>{ROLE_INFO[u.role as Role]?.label ?? u.role}</Badge></td>
                     <td>{!u.active ? <Badge tone="slate">Deactivated</Badge> : u.must_change_password ? <Badge tone="amber">Invite pending</Badge> : <Badge tone="emerald" dot>Active</Badge>}</td>
                     <td className="whitespace-nowrap text-sm text-slate-500">{u.last_login_at ? timeAgo(u.last_login_at) : "Never"}</td>
                     <td><RowMenu u={u} me={me} onChanged={() => reload(true)} onTemp={(email, password) => setTemp({ email, password })} /></td>
@@ -178,7 +183,7 @@ export default function AdminUsers() {
           <Field label="Full name" htmlFor="u-name" error={touched ? errs.name : null}><Input id="u-name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Priya Sharma" invalid={touched && !!errs.name} /></Field>
           <Field label="Work email" htmlFor="u-email" error={touched ? errs.email : null}><Input id="u-email" type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} placeholder="priya@company.com" invalid={touched && !!errs.email} /></Field>
           <Field label="Role" htmlFor="u-role" hint={ROLE_INFO[f.role].desc}>
-            <Segmented value={f.role} onChange={(v) => setF({ ...f, role: v })} options={[{ value: "estimator", label: "Estimator" }, { value: "admin", label: "Admin" }]} />
+            <Segmented value={f.role} onChange={(v) => setF({ ...f, role: v })} options={[{ value: "estimator", label: "Estimator" }, { value: "architect", label: "Architect" }, { value: "admin", label: "Admin" }]} />
           </Field>
           <button type="submit" className="hidden" />
         </form>

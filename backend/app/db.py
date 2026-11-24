@@ -37,6 +37,7 @@ engine = create_engine(
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
 DEFAULT_ORG = "org_demo"
+PLATFORM_ORG = "platform"  # organization_id of superadmin accounts; not a company
 
 
 def now() -> datetime:
@@ -212,6 +213,15 @@ class WindowDesign(Base):
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=now, onupdate=now)
 
 
+class Organization(Base):
+    """A customer company. Every tenant-scoped row's organization_id points at one of these."""
+    __tablename__ = "organizations"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(160))
+    status: Mapped[str] = mapped_column(String(20), default="active")  # active | suspended
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=now)
+
+
 class User(Base):
     __tablename__ = "users"
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=uid)
@@ -219,7 +229,7 @@ class User(Base):
     name: Mapped[str] = mapped_column(String(120))
     email: Mapped[str] = mapped_column(String(200), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(200))
-    role: Mapped[str] = mapped_column(String(20), default="estimator")  # admin | estimator
+    role: Mapped[str] = mapped_column(String(20), default="estimator")  # superadmin | admin | estimator | architect
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
     last_login_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)

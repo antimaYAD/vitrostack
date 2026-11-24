@@ -19,7 +19,10 @@ type Tab = "overview" | "panels" | "structural" | "cutting" | "quote";
 export default function ProjectDetail() {
   const { id } = useParams();
   const [params, setParams] = useSearchParams();
-  const tab = (params.get("tab") as Tab) || "overview";
+  const { isAdmin, canEdit } = useAuth();
+  const readOnly = !canEdit; // architects: view the project, no actions and no commercial figures
+  const rawTab = (params.get("tab") as Tab) || "overview";
+  const tab: Tab = readOnly && rawTab === "quote" ? "overview" : rawTab;
   const setTab = (t: Tab) => setParams(t === "overview" ? {} : { tab: t }, { replace: true });
   const { data: p, setData, error, loading, reload } = useApi<Project>(`/projects/${id}`);
   const [busy, setBusy] = useState<string | null>(null);
@@ -27,7 +30,6 @@ export default function ProjectDetail() {
   const [menu, setMenu] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const nav = useNavigate();
-  const { isAdmin } = useAuth();
 
   const run = async (key: string, fn: () => Promise<Project>, success: string, goto?: Tab) => {
     setBusy(key);
@@ -63,7 +65,8 @@ export default function ProjectDetail() {
 
   const TABS: { value: Tab; label: string }[] = [
     { value: "overview", label: "Overview" }, { value: "panels", label: `Panels (${p.panel_types})` },
-    { value: "structural", label: "Structural" }, { value: "cutting", label: "Cutting" }, { value: "quote", label: "Quote" },
+    { value: "structural", label: "Structural" }, { value: "cutting", label: "Cutting" },
+    ...(readOnly ? [] : [{ value: "quote" as Tab, label: "Quote" }]),
   ];
 
   return (
@@ -75,10 +78,11 @@ export default function ProjectDetail() {
             <h1 className="truncate text-[32px] font-semibold leading-tight tracking-tightest sm:text-[40px]">{p.name}</h1>
             <StatusBadge status={p.status} />
             {unsafe && <Badge tone="rose">Unsafe glass</Badge>}
+            {readOnly && <Badge tone="slate">View only</Badge>}
           </div>
           <p className="mt-1.5 text-[17px] text-slate-500">{[p.client, `${p.city} · ${p.building_height_m} m`, p.glass_label, p.glazing_system].filter(Boolean).join(" · ")}</p>
         </div>
-        <div className="flex items-center gap-2">
+        {!readOnly && <div className="flex items-center gap-2">
           {p.quote && <a href={`/api/v1/projects/${p.id}/quote.pdf`} target="_blank" rel="noreferrer"><Button variant={next ? "secondary" : "primary"} icon={<Download className="h-4 w-4" />}>Quote PDF</Button></a>}
           {next && <Button onClick={next.onClick} loading={busy === next.key} icon={next.icon}>{next.label}</Button>}
           <div className="relative">
@@ -94,7 +98,7 @@ export default function ProjectDetail() {
               </>
             )}
           </div>
-        </div>
+        </div>}
       </div>
 
       <Card className="mb-5 px-5 py-4"><StatusStepper status={p.status} unsafe={unsafe} /></Card>
@@ -112,11 +116,14 @@ export default function ProjectDetail() {
       </div>
 
       <div className="animate-fade-in" key={tab}>
-        {tab === "overview" && <OverviewTab p={p} onSaved={setData} onGo={setTab} />}
-        {tab === "panels" && <PanelsTab p={p} onSaved={setData} />}
-        {tab === "structural" && <StructuralTab p={p} busy={busy} onValidate={validate} onApply={applyRec} onOptimize={() => optimize(true)} />}
-        {tab === "cutting" && <CuttingTab p={p} busy={busy} onOptimize={optimize} onValidate={validate} onSaved={reload} onQuote={() => setQuoteOpen(true)} />}
-        {tab === "quote" && <QuoteTab p={p} onQuote={() => setQuoteOpen(true)} onGo={setTab} />}
+        {tab === "overview" && <OverviewTab p={p} onSaved={setData} onGo={setTab} readOnly={readOnly} />}
+        {/* A disabled fieldset turns every control inside into view-only for architects. */}
+        <fieldset disabled={readOnly} className="min-w-0">
+          {tab === "panels" && <PanelsTab p={p} onSaved={setData} />}
+          {tab === "structural" && <StructuralTab p={p} busy={busy} onValidate={validate} onApply={applyRec} onOptimize={() => optimize(true)} />}
+          {tab === "cutting" && <CuttingTab p={p} busy={busy} onOptimize={optimize} onValidate={validate} onSaved={reload} onQuote={() => setQuoteOpen(true)} />}
+        </fieldset>
+        {tab === "quote" && !readOnly && <QuoteTab p={p} onQuote={() => setQuoteOpen(true)} onGo={setTab} />}
       </div>
 
       <QuoteModal open={quoteOpen} onClose={() => setQuoteOpen(false)} p={p} onDone={(r) => { setData(r); setTab("quote"); }} />
@@ -133,7 +140,7 @@ export default function ProjectDetail() {
 
 // ---------------------------------------------------------------- Overview
 
-function OverviewTab({ p, onSaved, onGo }: { p: Project; onSaved: (p: Project) => void; onGo: (t: Tab) => void }) {
+function OverviewTab({ p, onSaved, onGo, readOnly }: { p: Project; onSaved: (p: Project) => void; onGo: (t: Tab) => void; readOnly: boolean }) {
   const [d, setD] = useState({ name: p.name, client: p.client ?? "", city: p.city, building_height_m: p.building_height_m as number | "", glass_spec: p.glass_spec, terrain: p.terrain, zone: p.zone });
   const [saving, setSaving] = useState(false);
   const dirty = d.name !== p.name || d.client !== (p.client ?? "") || d.city !== p.city || d.building_height_m !== p.building_height_m || d.glass_spec !== p.glass_spec || d.terrain !== p.terrain || d.zone !== p.zone;
@@ -158,7 +165,7 @@ function OverviewTab({ p, onSaved, onGo }: { p: Project; onSaved: (p: Project) =
     { title: "Glass", icon: p.wind?.all_safe === false ? <ShieldAlert className="h-4 w-4 text-rose-500" /> : <ShieldCheck className="h-4 w-4" />, tab: "structural" as Tab, value: p.wind ? pct(p.wind.max_utilisation) : "—", sub: p.wind ? `${p.wind.all_safe ? "Passes" : "Fails"} · governed by ${p.wind.governing_panel}` : p.glass_label, bad: p.wind?.all_safe === false },
     { title: "Silicone", icon: <Info className="h-4 w-4" />, tab: "structural" as Tab, value: p.silicone ? `${p.silicone.bite_mm} × ${p.silicone.glueline_thickness_mm} mm` : "—", sub: p.silicone ? `${p.silicone.structural_sausages_600ml} sausages DOWSIL 995` : "After a passing check" },
     { title: "Cutting", icon: <Scissors className="h-4 w-4" />, tab: "cutting" as Tab, value: p.cutting ? `${p.cutting.totals.jumbo_sheets} sheets` : "—", sub: p.cutting ? `${p.cutting.totals.scrap_pct}% net scrap · ${p.cutting.totals.offcuts_used} offcuts reused` : "Not optimized" },
-    { title: "Quote", icon: <FileText className="h-4 w-4" />, tab: "quote" as Tab, value: p.quote ? inr(p.quote.grand_total, { compact: true }) : "—", sub: p.quote ? `${p.quote.margin_percent}% margin · ${inr(p.quote.rate_per_sqm)}/m²` : "Not generated" },
+    ...(readOnly ? [] : [{ title: "Quote", icon: <FileText className="h-4 w-4" />, tab: "quote" as Tab, value: p.quote ? inr(p.quote.grand_total, { compact: true }) : "—", sub: p.quote ? `${p.quote.margin_percent}% margin · ${inr(p.quote.rate_per_sqm)}/m²` : "Not generated" }]),
   ];
 
   return (
@@ -181,8 +188,8 @@ function OverviewTab({ p, onSaved, onGo }: { p: Project; onSaved: (p: Project) =
       </div>
 
       <Card>
-        <CardHeader title="Project settings" subtitle="Changing site or glass inputs re-runs the safety check" />
-        <div className="space-y-4 p-5">
+        <CardHeader title="Project settings" subtitle={readOnly ? "View only. Ask an estimator or admin to change these." : "Changing site or glass inputs re-runs the safety check"} />
+        <fieldset disabled={readOnly} className="min-w-0 space-y-4 p-5">
           <Field label="Name" htmlFor="ps-name"><Input id="ps-name" value={d.name} onChange={(e) => setD({ ...d, name: e.target.value })} /></Field>
           <Field label="Client" htmlFor="ps-client"><Input id="ps-client" value={d.client} onChange={(e) => setD({ ...d, client: e.target.value })} /></Field>
           <Field label="City" htmlFor="ps-city"><CityInput id="ps-city" value={d.city} onChange={(v) => setD({ ...d, city: v })} /></Field>
@@ -193,11 +200,11 @@ function OverviewTab({ p, onSaved, onGo }: { p: Project; onSaved: (p: Project) =
             <Field label="Zone" htmlFor="ps-z"><Select id="ps-z" value={d.zone} onChange={(e) => setD({ ...d, zone: e.target.value })}><option value="typical">Typical</option><option value="corner">Corner / edge</option></Select></Field>
           </div>
           {engChanged && p.wind && <p className="flex gap-2 rounded-lg bg-amber-50 p-2.5 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"><AlertTriangle className="h-4 w-4 shrink-0" /> Saving will re-run IS 875 and clear the cutting plan & quote.</p>}
-          <div className="flex justify-end gap-2">
+          {!readOnly && <div className="flex justify-end gap-2">
             {dirty && <Button variant="ghost" onClick={() => setD({ name: p.name, client: p.client ?? "", city: p.city, building_height_m: p.building_height_m, glass_spec: p.glass_spec, terrain: p.terrain, zone: p.zone })}>Discard</Button>}
             <Button disabled={!dirty} loading={saving} onClick={save} icon={<Save className="h-4 w-4" />}>Save changes</Button>
-          </div>
-        </div>
+          </div>}
+        </fieldset>
       </Card>
     </div>
   );

@@ -1,7 +1,8 @@
 """HTTP API, split by feature area.
 
-    auth         sign-in / sign-up / sign-out / me / password       (public)
+    auth         sign-in / sign-out / me / password                 (public)
     users        admin: user management                             (admin)
+    platform     superadmin: companies and their admins             (superadmin)
     system       health (public), reference data, dashboard
     projects     projects, validation, cutting, quotes, remnants
     engineering  stand-alone wind / silicone / cutting tools, uploads
@@ -15,12 +16,14 @@
 """
 from __future__ import annotations
 
-from . import agent, alerts, auth, canvas, designs, engineering, inventory, pricing, projects, system, users, whatsapp
+from . import (agent, alerts, auth, canvas, designs, engineering, inventory, platform, pricing, projects, system, users,
+               whatsapp)
 
 # Registered in the same order as the original single-file layout.
 routers = [
     auth.router,
     users.router,
+    platform.router,
     system.public,
     whatsapp.public,
     system.router,

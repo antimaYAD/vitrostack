@@ -1,8 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Bot, ChevronRight, FolderKanban, KeyRound, LogOut, Moon, Search, ShieldCheck, Sun } from "lucide-react";
 import { toast } from "sonner";
-import { useAuth } from "../lib/auth";
+import { ROLE_LABEL, useAuth, type Role } from "../lib/auth";
 import { ChangePasswordModal } from "./AccountModals";
 import { api, type ProjectSummary, type Reference } from "../lib/api";
 import { cn } from "../lib/utils";
@@ -21,16 +21,28 @@ interface AppCtx {
 const Ctx = createContext<AppCtx>({ reference: null, alertCount: 0, refreshAlerts: () => {}, health: null, openPalette: () => {}, refreshReference: () => {} });
 export const useApp = () => useContext(Ctx);
 
-const NAV = [
+type NavItem = { to: string; label: string; end?: boolean; badge?: boolean; access?: "admin" | "editor" | "superadmin" };
+
+const NAV: NavItem[] = [
+  { to: "/platform", label: "Companies", access: "superadmin" },
   { to: "/", label: "Overview", end: true },
-  { to: "/copilot", label: "Copilot" },
+  { to: "/copilot", label: "Copilot", access: "editor" },
   { to: "/projects", label: "Projects" },
   { to: "/designer", label: "Designer" },
   { to: "/engineering", label: "Engineering" },
   { to: "/inventory", label: "Offcuts" },
-  { to: "/site", label: "Site Ops", badge: true },
-  { to: "/admin", label: "Admin", admin: true },
+  { to: "/site", label: "Site Ops", badge: true, access: "editor" },
+  { to: "/admin", label: "Admin", access: "admin" },
 ];
+
+/** The superadmin only sees the platform; company users see what their role allows. */
+function useNavItems() {
+  const { isAdmin, isSuperadmin, canEdit } = useAuth();
+  return NAV.filter((n) => isSuperadmin ? n.access === "superadmin"
+    : n.access === "superadmin" ? false : n.access === "admin" ? isAdmin : n.access === "editor" ? canEdit : true);
+}
+
+const elevated = (role: Role) => role === "admin" || role === "superadmin";
 
 function UserMenu({ onPassword }: { onPassword: () => void }) {
   const { user, logout } = useAuth();
@@ -48,7 +60,7 @@ function UserMenu({ onPassword }: { onPassword: () => void }) {
     <div className="relative">
       <button onClick={() => setOpen((o) => !o)} aria-label="Account menu" aria-expanded={open}
         className={cn("ml-1 flex h-8 w-8 items-center justify-center rounded-full text-[11px] font-semibold text-white ring-2 ring-transparent transition hover:ring-brand-600/30",
-          user.role === "admin" ? "bg-gradient-to-br from-[#0071e3] to-[#5e5ce6]" : "bg-gradient-to-br from-slate-400 to-slate-600")}>
+          elevated(user.role) ? "bg-gradient-to-br from-[#0071e3] to-[#5e5ce6]" : "bg-gradient-to-br from-slate-400 to-slate-600")}>
         {initials}
       </button>
       {open && (
@@ -58,9 +70,10 @@ function UserMenu({ onPassword }: { onPassword: () => void }) {
             <div className="px-3 py-2.5">
               <p className="truncate text-[15px] font-semibold text-[#1d1d1f] dark:text-white">{user.name}</p>
               <p className="truncate text-xs text-slate-500">{user.email}</p>
+              {user.company_name && <p className="mt-1 truncate text-xs font-medium text-slate-600 dark:text-slate-300">{user.company_name}</p>}
               <span className={cn("mt-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium",
-                user.role === "admin" ? "bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300" : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300")}>
-                {user.role === "admin" && <ShieldCheck className="h-3 w-3" />}{user.role === "admin" ? "Admin" : "Estimator"}
+                elevated(user.role) ? "bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300" : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300")}>
+                {elevated(user.role) && <ShieldCheck className="h-3 w-3" />}{ROLE_LABEL[user.role]}
               </span>
             </div>
             <div className="my-1 h-px bg-black/5 dark:bg-white/10" />
@@ -105,27 +118,28 @@ function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void 
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [active, setActive] = useState(0);
   const nav = useNavigate();
-  const { isAdmin } = useAuth();
+  const { canEdit, isSuperadmin } = useAuth();
+  const navItems = useNavItems();
   const input = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open) return;
     setQ("");
     setActive(0);
-    api.get<ProjectSummary[]>("/projects").then(setProjects).catch(() => {});
+    if (!isSuperadmin) api.get<ProjectSummary[]>("/projects").then(setProjects).catch(() => {});
     setTimeout(() => input.current?.focus(), 20);
   }, [open]);
 
   const items = useMemo(() => {
     const ql = q.toLowerCase().trim();
     const out: { id: string; label: string; hint: string; icon: ReactNode; run: () => void }[] = [];
-    if (ql) out.push({ id: "ask", label: `Ask VitroCore: “${q}”`, hint: "Copilot", icon: <Bot className="h-4 w-4" />, run: () => nav(`/copilot?q=${encodeURIComponent(q)}`) });
-    NAV.filter((n) => (!("admin" in n) || isAdmin) && (!ql || n.label.toLowerCase().includes(ql))).forEach((n) =>
+    if (ql && canEdit) out.push({ id: "ask", label: `Ask VitroCore: “${q}”`, hint: "Copilot", icon: <Bot className="h-4 w-4" />, run: () => nav(`/copilot?q=${encodeURIComponent(q)}`) });
+    navItems.filter((n) => !ql || n.label.toLowerCase().includes(ql)).forEach((n) =>
       out.push({ id: n.to, label: n.label, hint: "Go to", icon: <ChevronRight className="h-4 w-4" />, run: () => nav(n.to) }));
     projects.filter((p) => !ql || `${p.name} ${p.client ?? ""} ${p.city}`.toLowerCase().includes(ql)).slice(0, 6).forEach((p) =>
       out.push({ id: p.id, label: p.name, hint: `${p.city} · ${p.status}`, icon: <FolderKanban className="h-4 w-4" />, run: () => nav(`/projects/${p.id}`) }));
     return out;
-  }, [q, projects, nav, isAdmin]);
+  }, [q, projects, nav, canEdit, navItems]);
 
   useEffect(() => setActive(0), [q]);
   if (!open) return null;
@@ -186,8 +200,8 @@ export default function Layout() {
   const [menu, setMenu] = useState(false);
   const [pwOpen, setPwOpen] = useState(false);
   const { dark, toggle } = useTheme();
-  const { user, isAdmin, logout } = useAuth();
-  const navItems = NAV.filter((n) => !("admin" in n) || isAdmin);
+  const { user, isSuperadmin, logout } = useAuth();
+  const navItems = useNavItems();
   const loc = useLocation();
 
   const refreshAlerts = useCallback(() => {
@@ -196,12 +210,13 @@ export default function Layout() {
 
   const refreshReference = useCallback(() => { api.get<Reference>("/reference").then(setReference).catch(() => {}); }, []);
   useEffect(() => {
-    refreshReference();
     api.get<AppCtx["health"]>("/health").then(setHealth).catch(() => setHealth(null));
+    if (isSuperadmin) return;
+    refreshReference();
     refreshAlerts();
     const t = setInterval(refreshAlerts, 15000);
     return () => clearInterval(t);
-  }, [refreshAlerts, refreshReference]);
+  }, [refreshAlerts, refreshReference, isSuperadmin]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -221,6 +236,9 @@ export default function Layout() {
   const fullBleed = loc.pathname.startsWith("/copilot");
   const drawing = loc.pathname.startsWith("/designer"); // CAD canvas: use the full screen width
   const iconBtn = "flex h-9 w-9 items-center justify-center rounded-full text-slate-600 transition hover:bg-black/5 hover:text-[#1d1d1f] dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-white";
+
+  // The superadmin has no company workspace, so every company page sends it to the platform.
+  if (isSuperadmin && !loc.pathname.startsWith("/platform")) return <Navigate to="/platform" replace />;
 
   return (
     <Ctx.Provider value={ctx}>
@@ -272,7 +290,7 @@ export default function Layout() {
             </nav>
             {user && (
               <div className="mt-10 border-t border-slate-200 pt-6 dark:border-slate-800">
-                <p className="text-[15px] font-semibold">{user.name} <span className="text-xs font-normal text-slate-500">· {user.role === "admin" ? "Admin" : "Estimator"}</span></p>
+                <p className="text-[15px] font-semibold">{user.name} <span className="text-xs font-normal text-slate-500">· {ROLE_LABEL[user.role]}{user.company_name ? ` · ${user.company_name}` : ""}</span></p>
                 <p className="text-sm text-slate-500">{user.email}</p>
                 <div className="mt-4 flex gap-3">
                   <button onClick={() => { setMenu(false); setPwOpen(true); }} className="link text-[15px]">Change password</button>

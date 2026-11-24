@@ -4,7 +4,7 @@ import { Toaster } from "sonner";
 import { Lock } from "lucide-react";
 import Layout from "./components/Layout";
 import { Button, EmptyState, Skeleton } from "./components/ui";
-import { AuthProvider, RequireAdmin, RequireAuth } from "./lib/auth";
+import { AuthProvider, RequireAdmin, RequireAuth, RequireEditor, RequireSuperadmin } from "./lib/auth";
 import Overview from "./pages/Overview";
 import Copilot from "./pages/Copilot";
 import Projects from "./pages/Projects";
@@ -16,7 +16,7 @@ import NotFound from "./pages/NotFound";
 import Admin from "./pages/Admin";
 import AdminUsers from "./pages/AdminUsers";
 import Login from "./pages/Login";
-import Register from "./pages/Register";
+import Platform from "./pages/Platform";
 
 // The canvas pulls in Konva (~300 kB), so the designer loads on demand.
 const FacadeStudio = lazy(() => import("./pages/FacadeStudio"));
@@ -29,7 +29,7 @@ function ToDesigner() {
 
 function Forbidden() {
   return (
-    <EmptyState icon={<Lock className="h-6 w-6" />} title="Admins only" body="Your account doesn't have access to this area. Ask an admin if you need it."
+    <EmptyState icon={<Lock className="h-6 w-6" />} title="Not available for your role" body="Your account doesn't have access to this area. Ask your company admin if you need it."
       action={<Link to="/"><Button>Back to overview</Button></Link>} />
   );
 }
@@ -39,18 +39,20 @@ export default function App() {
     <AuthProvider>
       <Routes>
         <Route path="login" element={<Login />} />
-        <Route path="register" element={<Register />} />
+        {/* No self sign-up: the superadmin creates companies, company admins create their users. */}
+        <Route path="register" element={<Navigate to="/login" replace />} />
         <Route element={<RequireAuth><Layout /></RequireAuth>}>
           <Route index element={<Overview />} />
-          <Route path="copilot" element={<Copilot />} />
-          <Route path="copilot/:sessionId" element={<Copilot />} />
+          <Route path="platform" element={<RequireSuperadmin><Platform /></RequireSuperadmin>} />
+          <Route path="copilot" element={<RequireEditor><Copilot /></RequireEditor>} />
+          <Route path="copilot/:sessionId" element={<RequireEditor><Copilot /></RequireEditor>} />
           <Route path="projects" element={<Projects />} />
           <Route path="projects/:id" element={<ProjectDetail />} />
           <Route path="engineering" element={<Engineering />} />
           <Route path="designer" element={<Suspense fallback={<Skeleton className="h-[600px] rounded-2xl" />}><FacadeStudio /></Suspense>} />
           <Route path="facade" element={<ToDesigner />} />
           <Route path="inventory" element={<Inventory />} />
-          <Route path="site" element={<SiteOps />} />
+          <Route path="site" element={<RequireEditor><SiteOps /></RequireEditor>} />
           <Route path="admin" element={<Navigate to="/admin/pricing" replace />} />
           <Route path="admin/pricing" element={<RequireAdmin><Admin /></RequireAdmin>} />
           <Route path="admin/users" element={<RequireAdmin><AdminUsers /></RequireAdmin>} />

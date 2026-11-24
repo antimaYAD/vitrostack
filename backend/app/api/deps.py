@@ -1,7 +1,7 @@
 """Shared dependencies for the API modules."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from .. import auth
 from ..db import User
@@ -14,4 +14,9 @@ def protected_router() -> APIRouter:
 
 def org_id(user: User = Depends(auth.current_user)) -> str:
     """Tenant scoping comes from the signed-in user, never from a client-supplied header."""
+    if user.role == auth.SUPERADMIN:
+        raise HTTPException(403, "The superadmin manages companies and has no company workspace of its own")
     return user.organization_id
+
+
+editor = Depends(auth.require_editor)  # admins and estimators only; architects are read-only

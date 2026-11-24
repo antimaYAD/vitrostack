@@ -5,9 +5,9 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import pricing, services, whatsapp
+from .. import auth, pricing, services, whatsapp
 from ..agent import orchestrator
-from ..db import AgentToolLog, Alert, Offcut, Project, get_db
+from ..db import AgentToolLog, Alert, Offcut, Project, User, get_db
 from ..engines import cutting, silicone, wind
 from ..engines.glass import parse_glass_spec
 from ..engines.rates import catalogue, glass_rate
@@ -40,7 +40,7 @@ def reference(db: Session = Depends(get_db), org: str = Depends(org_id)):
 
 
 @router.get("/dashboard")
-def dashboard(db: Session = Depends(get_db), org: str = Depends(org_id)):
+def dashboard(db: Session = Depends(get_db), org: str = Depends(org_id), user: User = Depends(auth.current_user)):
     projects = db.scalars(select(Project).where(Project.organization_id == org).order_by(Project.updated_at.desc())).all()
     by_status = {s: 0 for s in services.STATUS_ORDER}
     for p in projects:
@@ -67,13 +67,13 @@ def dashboard(db: Session = Depends(get_db), org: str = Depends(org_id)):
     return {
         "kpis": {
             "active_projects": len(projects),
-            "pipeline_value": round(sum(p.quote["grand_total"] for p in quoted), 2),
+            "pipeline_value": round(sum(p.quote["grand_total"] for p in quoted), 2) if auth.sees_costs(user) else None,
             "quoted_projects": len(quoted),
             "avg_scrap_pct": round(sum(scraps) / len(scraps), 2) if scraps else None,
             "offcuts_available": sum(q(o) for o in avail),
             "offcut_area_m2": round(sum(o.width_mm * o.height_mm * q(o) for o in avail) / 1e6, 2),
             "offcut_reused_area_m2": round(reused_area, 2),
-            "offcut_savings_inr": round(saved),
+            "offcut_savings_inr": round(saved) if auth.sees_costs(user) else None,
             "open_alerts": len(alerts),
             "panels_in_pipeline": sum(sum(x.quantity for x in p.panels) for p in projects),
         },

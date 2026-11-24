@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from .. import whatsapp
 from ..db import Alert, get_db
-from .deps import org_id, protected_router
+from .deps import editor, org_id, protected_router
 
 router = protected_router()
 
@@ -33,7 +33,7 @@ def alert_count(db: Session = Depends(get_db), org: str = Depends(org_id)):
     return {"open": n or 0}
 
 
-@router.post("/alerts/{aid}/approve")
+@router.post("/alerts/{aid}/approve", dependencies=[editor])
 def approve_alert(aid: int, db: Session = Depends(get_db), org: str = Depends(org_id)):
     a = db.get(Alert, aid)
     if not a or a.organization_id != org:
@@ -47,7 +47,7 @@ def approve_alert(aid: int, db: Session = Depends(get_db), org: str = Depends(or
     return {"status": "approved", "alert": _alert(a)}
 
 
-@router.post("/alerts/{aid}/dismiss")
+@router.post("/alerts/{aid}/dismiss", dependencies=[editor])
 def dismiss_alert(aid: int, db: Session = Depends(get_db), org: str = Depends(org_id)):
     a = db.get(Alert, aid)
     if not a or a.organization_id != org:

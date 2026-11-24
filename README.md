@@ -28,12 +28,14 @@ Demo data (4 projects and an offcut inventory) is seeded on first launch. Delete
 
 | Role | Can do |
 |---|---|
-| **Admin** | Everything, plus **Admin → Pricing**, **Admin → Users** (add, change role, reset password, deactivate, delete), deleting projects, and adding offcuts (by hand or by saving a cutting plan's remnants) |
+| **Superadmin** | Platform owner. Only the **Companies** page: create a company and its first admin, add admins, reset an admin's password, suspend or reactivate a company. Sees company names and counts, never a company's projects, prices or offcuts |
+| **Admin** | Everything in their company, plus **Admin → Pricing**, **Admin → Users** (add estimators, architects and admins, change role, reset password, deactivate, delete), deleting projects, and adding offcuts (by hand or by saving a cutting plan's remnants) |
 | **Estimator** | Overview, Copilot, Projects, Designer, Engineering tools, Offcuts (view only), Site Ops. No admin area |
+| **Architect** | Designer and Engineering tools. Projects and offcuts are view only, without prices, quotes or the copilot |
 
-Anyone can **create an account** at `/register`. It creates a new, separate company workspace with that person as admin; colleagues are then added from Admin → Users. Set `ALLOW_SIGNUP=0` to turn self sign-up off.
+There is **no self sign-up**: the superadmin creates each company and its admin, and the admin adds the company's people. Each company's data is separate. The superadmin account comes from `SUPERADMIN_EMAIL` / `SUPERADMIN_PASSWORD`.
 
-Demo accounts are created on first start: `admin@vitrostack.local` / `admin123` and `estimator@vitrostack.local` / `estimator123`.
+Demo accounts are created on first start: `superadmin@vitrostack.local` / `superadmin123` (demo mode only), `admin@vitrostack.local` / `admin123`, `estimator@vitrostack.local` / `estimator123` and `architect@vitrostack.local` / `architect123`.
 For a real deployment, set `ADMIN_EMAIL` / `ADMIN_PASSWORD` before the first start, set `DEMO_MODE=0`, and set `COOKIE_SECURE=1` behind HTTPS.
 Sessions are server-side and stored in an HttpOnly cookie (12 h, or 30 days with "Keep me signed in"). New users get a
 temporary password and must change it at first sign-in. Copilot conversations are private to each user.
@@ -100,7 +102,7 @@ Put it behind HTTPS (Caddy, nginx or a load balancer) and keep `COOKIE_SECURE=1`
 
 **Managed hosts (Render, Railway, Fly.io and similar):** deploy the repo as a Docker web service, add a Postgres
 database, and set these environment variables: `DATABASE_URL` (the host's `postgres://` URL works as is),
-`ADMIN_EMAIL`, `ADMIN_PASSWORD`, `DEMO_MODE=0`, `ALLOW_SIGNUP=0`, `COOKIE_SECURE=1`. No disk is needed: all data is in
+`ADMIN_EMAIL`, `ADMIN_PASSWORD`, `SUPERADMIN_EMAIL`, `SUPERADMIN_PASSWORD`, `DEMO_MODE=0`, `COOKIE_SECURE=1`. No disk is needed: all data is in
 Postgres, and quote PDFs and uploaded schedules are temporary files.
 
 On the first start against an empty database, the app creates the tables and the admin account. Demo projects are

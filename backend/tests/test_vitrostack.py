@@ -156,17 +156,70 @@ def test_admin_user_management():
         assert c2.post("/api/v1/auth/login", json={"email": "lead@example.com", "password": temp}).status_code == 401
 
 
-def test_register_joins_company_as_estimator():
+def test_self_signup_is_gone():
     with TestClient(app) as c:
         r = c.post("/api/v1/auth/register", json={"name": "Asha", "email": "asha@glassworks.in", "password": "secret123"})
+        assert r.status_code in (404, 405)
+        assert c.get("/api/v1/auth/options").json()["allow_signup"] is False
+
+
+def test_hierarchy_superadmin_company_admin_employees():
+    with client("superadmin@vitrostack.local", "superadmin123") as su:
+        assert su.get("/api/v1/projects").status_code == 403  # no company workspace of its own
+        assert su.get("/api/v1/admin/users").status_code == 403
+        r = su.post("/api/v1/platform/companies",
+                    json={"name": "Glassworks Pvt Ltd", "admin_name": "Asha", "admin_email": "asha@glassworks.in"})
         assert r.status_code == 201, r.text
-        assert r.json()["user"]["role"] == "estimator"  # sign-ups never get admin
-        assert c.get("/api/v1/projects").status_code == 200
+        cid, admin_pw = r.json()["company"]["id"], r.json()["temporary_password"]
+        assert su.post("/api/v1/platform/companies",
+                       json={"name": "glassworks pvt ltd", "admin_name": "X", "admin_email": "x@y.in"}).status_code == 400
+        names = [c["name"] for c in su.get("/api/v1/platform/companies").json()]
+        assert "VitroStack Demo" in names and "Glassworks Pvt Ltd" in names
+
+    with client("asha@glassworks.in", admin_pw) as admin:
+        me = admin.get("/api/v1/auth/me").json()["user"]
+        assert me["role"] == "admin" and me["company_name"] == "Glassworks Pvt Ltd" and me["must_change_password"]
+        assert admin.get("/api/v1/projects").json() == []  # isolated from the demo company
+        assert admin.get("/api/v1/platform/companies").status_code == 403
+        assert admin.post("/api/v1/admin/users", json={"name": "S", "email": "s@g.in", "role": "superadmin"}).status_code == 400
+        r = admin.post("/api/v1/admin/users", json={"name": "Ravi", "email": "ravi@glassworks.in", "role": "architect"})
+        assert r.status_code == 201, r.text
+        arch_pw = r.json()["temporary_password"]
+        pid = admin.post("/api/v1/projects", json={"name": "Tower", "city": "Pune", "building_height_m": 20,
+                                                   "panels": [{"width_mm": 1000, "height_mm": 1000}]}).json()["id"]
+
+    with client("ravi@glassworks.in", arch_pw) as arch:
+        assert arch.get(f"/api/v1/projects/{pid}").json()["quote"] is None
+        assert arch.get("/api/v1/projects").json()[0]["grand_total"] is None
+        assert arch.post("/api/v1/projects", json={"name": "No", "city": "Pune", "building_height_m": 5,
+                                                   "panels": [{"width_mm": 900, "height_mm": 900}]}).status_code == 403
+        assert arch.post(f"/api/v1/projects/{pid}/validate").status_code == 403
+        assert arch.post("/api/v1/agent/chat", json={"message": "hi"}).status_code == 403
+        assert arch.post("/api/v1/offcuts", json={"width_mm": 500, "height_mm": 500}).status_code == 403
+        assert arch.get("/api/v1/offcuts").status_code == 200
+        assert arch.get("/api/v1/dashboard").json()["kpis"]["pipeline_value"] is None
+
+    with client("superadmin@vitrostack.local", "superadmin123") as su:
+        assert su.patch(f"/api/v1/platform/companies/{cid}", json={"status": "suspended"}).json()["status"] == "suspended"
+    with TestClient(app) as c:
+        r = c.post("/api/v1/auth/login", json={"email": "asha@glassworks.in", "password": admin_pw})
+        assert r.status_code == 401 and "suspended" in r.json()["detail"]
+    with client("superadmin@vitrostack.local", "superadmin123") as su:
+        su.patch(f"/api/v1/platform/companies/{cid}", json={"status": "active"})
+        admin_id = next(c for c in su.get("/api/v1/platform/companies").json() if c["id"] == cid)["admins"][0]["id"]
+        new_pw = su.post(f"/api/v1/platform/admins/{admin_id}/reset-password").json()["temporary_password"]
+    with client("asha@glassworks.in", new_pw):
+        pass
+
+
+def test_estimator_can_work_but_not_admin():
+    with client("estimator@vitrostack.local", "estimator123") as c:
         assert c.get("/api/v1/admin/users").status_code == 403
         assert c.post("/api/v1/offcuts", json={"width_mm": 500, "height_mm": 500}).status_code == 403
         assert c.delete("/api/v1/offcuts/1").status_code == 403
-        dup = c.post("/api/v1/auth/register", json={"company": "Other Co", "name": "Y", "email": "asha@glassworks.in", "password": "secret123"})
-        assert dup.status_code == 400
+        r = c.post("/api/v1/projects", json={"name": "Est", "city": "Pune", "building_height_m": 10,
+                                            "panels": [{"width_mm": 900, "height_mm": 900}]})
+        assert r.status_code == 201, r.text
 
 
 def test_window_designs_crud_and_scoping():

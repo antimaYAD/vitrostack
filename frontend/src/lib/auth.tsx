@@ -2,12 +2,17 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { Navigate, useLocation } from "react-router-dom";
 import { api } from "./api";
 
+export type Role = "superadmin" | "admin" | "estimator" | "architect";
+
+export const ROLE_LABEL: Record<Role, string> = { superadmin: "Superadmin", admin: "Admin", estimator: "Estimator", architect: "Architect" };
+
 export interface User {
   id: string;
   name: string;
   email: string;
-  role: "admin" | "estimator";
+  role: Role;
   active: boolean;
+  company_name?: string | null;
   must_change_password: boolean;
   last_login_at: string | null;
   created_at: string | null;
@@ -17,6 +22,10 @@ interface AuthCtx {
   user: User | null;
   loading: boolean;
   isAdmin: boolean;
+  /** Platform owner: manages companies, has no company workspace. */
+  isSuperadmin: boolean;
+  /** Admins and estimators can change projects, quote, use the copilot and site ops. Architects are view-only. */
+  canEdit: boolean;
   login: (email: string, password: string, remember: boolean) => Promise<User>;
   logout: () => Promise<void>;
   setUser: (u: User) => void;
@@ -47,7 +56,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
-  const value = useMemo(() => ({ user, loading, isAdmin: user?.role === "admin", login, logout, setUser }), [user, loading, login, logout]);
+  const value = useMemo(() => ({
+    user, loading, login, logout, setUser,
+    isAdmin: user?.role === "admin",
+    isSuperadmin: user?.role === "superadmin",
+    canEdit: user?.role === "admin" || user?.role === "estimator",
+  }), [user, loading, login, logout]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
@@ -76,5 +90,17 @@ export function RequireAuth({ children }: { children: ReactNode }) {
 export function RequireAdmin({ children }: { children: ReactNode }) {
   const { isAdmin } = useAuth();
   if (!isAdmin) return <Navigate to="/forbidden" replace />;
+  return <>{children}</>;
+}
+
+export function RequireSuperadmin({ children }: { children: ReactNode }) {
+  const { isSuperadmin } = useAuth();
+  if (!isSuperadmin) return <Navigate to="/forbidden" replace />;
+  return <>{children}</>;
+}
+
+export function RequireEditor({ children }: { children: ReactNode }) {
+  const { canEdit } = useAuth();
+  if (!canEdit) return <Navigate to="/forbidden" replace />;
   return <>{children}</>;
 }

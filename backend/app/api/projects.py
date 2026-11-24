@@ -8,11 +8,22 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import auth, pricing, services
-from ..db import Project, WindowDesign, get_db
+from ..db import Project, User, WindowDesign, get_db
 from ..engines import costing
-from .deps import org_id, protected_router
+from .deps import editor, org_id, protected_router
 
 router = protected_router()
+
+COST_FIELDS = ("grand_total", "quote", "bom")
+
+
+def _for_role(p: dict, user: User) -> dict:
+    """Architects get read-only projects without commercial figures."""
+    if not auth.sees_costs(user):
+        for k in COST_FIELDS:
+            if k in p:
+                p[k] = None
+    return p
 
 
 class PanelIn(BaseModel):
@@ -61,10 +72,10 @@ class OptimizeIn(BaseModel):
 
 @router.get("/projects")
 def list_projects(q: str | None = None, status: str | None = None, db: Session = Depends(get_db),
-                  org: str = Depends(org_id)):
+                  org: str = Depends(org_id), user: User = Depends(auth.current_user)):
     stmt = select(Project).where(Project.organization_id == org).order_by(Project.updated_at.desc())
     rows = db.scalars(stmt).all()
-    out = [services.serialize_project(p, full=False) for p in rows]
+    out = [_for_role(services.serialize_project(p, full=False), user) for p in rows]
     if q:
         ql = q.lower()
         out = [p for p in out if ql in p["name"].lower() or ql in (p["client"] or "").lower() or ql in p["city"].lower()]
@@ -73,18 +84,19 @@ def list_projects(q: str | None = None, status: str | None = None, db: Session =
     return out
 
 
-@router.post("/projects", status_code=201)
+@router.post("/projects", status_code=201, dependencies=[editor])
 def create_project(body: ProjectIn, db: Session = Depends(get_db), org: str = Depends(org_id)):
     p = services.create_project(db, body.model_dump(), org)
     return services.serialize_project(p)
 
 
 @router.get("/projects/{pid}")
-def get_project(pid: str, db: Session = Depends(get_db), org: str = Depends(org_id)):
-    return services.serialize_project(services.get_project(db, pid, org))
+def get_project(pid: str, db: Session = Depends(get_db), org: str = Depends(org_id),
+                user: User = Depends(auth.current_user)):
+    return _for_role(services.serialize_project(services.get_project(db, pid, org)), user)
 
 
-@router.patch("/projects/{pid}")
+@router.patch("/projects/{pid}", dependencies=[editor])
 def patch_project(pid: str, body: ProjectPatch, db: Session = Depends(get_db), org: str = Depends(org_id)):
     p = services.get_project(db, pid, org)
     data = body.model_dump(exclude_unset=True)
@@ -103,14 +115,14 @@ def delete_project(pid: str, db: Session = Depends(get_db), org: str = Depends(o
     db.commit()
 
 
-@router.post("/projects/{pid}/validate")
+@router.post("/projects/{pid}/validate", dependencies=[editor])
 def validate_project(pid: str, db: Session = Depends(get_db), org: str = Depends(org_id)):
     p = services.get_project(db, pid, org)
     services.run_wind_check(db, p)
     return services.serialize_project(p)
 
 
-@router.post("/projects/{pid}/apply-recommendation")
+@router.post("/projects/{pid}/apply-recommendation", dependencies=[editor])
 def apply_recommendation(pid: str, db: Session = Depends(get_db), org: str = Depends(org_id)):
     p = services.get_project(db, pid, org)
     rec = (p.wind or {}).get("recommended_glass_spec")
@@ -121,21 +133,21 @@ def apply_recommendation(pid: str, db: Session = Depends(get_db), org: str = Dep
     return services.serialize_project(p)
 
 
-@router.post("/projects/{pid}/optimize")
+@router.post("/projects/{pid}/optimize", dependencies=[editor])
 def optimize_project(pid: str, body: OptimizeIn, db: Session = Depends(get_db), org: str = Depends(org_id)):
     p = services.get_project(db, pid, org)
     services.run_cutting(db, p, body.check_offcuts)
     return services.serialize_project(p)
 
 
-@router.post("/projects/{pid}/quote")
+@router.post("/projects/{pid}/quote", dependencies=[editor])
 def quote_project(pid: str, body: MarginIn, db: Session = Depends(get_db), org: str = Depends(org_id)):
     p = services.get_project(db, pid, org)
     services.run_quote(db, p, body.margin_percent)
     return services.serialize_project(p)
 
 
-@router.get("/projects/{pid}/quote-preview")
+@router.get("/projects/{pid}/quote-preview", dependencies=[editor])
 def quote_preview(pid: str, margin_percent: float = Query(18, ge=0, lt=90), db: Session = Depends(get_db),
                   org: str = Depends(org_id)):
     """Live margin preview without persisting (for the approval slider)."""
@@ -148,7 +160,7 @@ def quote_preview(pid: str, margin_percent: float = Query(18, ge=0, lt=90), db: 
     return {"bom": bom, "quote": costing.build_quote(bom, margin_percent, prices["commercial"]["gst_pct"])}
 
 
-@router.get("/projects/{pid}/quote.pdf")
+@router.get("/projects/{pid}/quote.pdf", dependencies=[editor])
 def quote_pdf(pid: str, db: Session = Depends(get_db), org: str = Depends(org_id)):
     p = services.get_project(db, pid, org)
     if not p.quote:
