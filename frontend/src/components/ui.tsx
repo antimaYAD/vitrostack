@@ -1,4 +1,5 @@
 import { forwardRef, useEffect, useId, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from "react";
+import { createPortal } from "react-dom";
 import { Loader2, X } from "lucide-react";
 import { cn, STATUS_META } from "../lib/utils";
 
@@ -241,7 +242,8 @@ export function Modal({ open, onClose, title, description, children, footer, siz
     };
   }, [open]);
   if (!open) return null;
-  return (
+  // Portal to <body> so a modal opened from inside a table row or a blurred card is never clipped or layered under it.
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-6" role="dialog" aria-modal="true" aria-labelledby={titleId}>
       <div className="absolute inset-0 bg-black/30 backdrop-blur-md animate-fade-in" onClick={onClose} />
       <div ref={panel} className={cn("relative flex max-h-[92vh] w-full flex-col rounded-t-[28px] bg-white shadow-pop animate-fade-in dark:bg-slate-900 sm:rounded-[28px]", size === "md" && "sm:max-w-lg", size === "lg" && "sm:max-w-2xl", size === "xl" && "sm:max-w-4xl")}>
@@ -255,7 +257,8 @@ export function Modal({ open, onClose, title, description, children, footer, siz
         <div className="flex-1 overflow-y-auto px-7 py-5">{children}</div>
         {footer && <div className="flex flex-col-reverse gap-2 px-7 pb-7 pt-3 sm:flex-row sm:justify-end">{footer}</div>}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

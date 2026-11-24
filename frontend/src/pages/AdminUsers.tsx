@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { Check, Copy, KeyRound, MoreHorizontal, Plus, ShieldCheck, Trash2, UserRound, Users } from "lucide-react";
+import { Check, Copy, KeyRound, MoreHorizontal, Pencil, Plus, ShieldCheck, Trash2, UserRound, Users } from "lucide-react";
 import { api } from "../lib/api";
 import { useAuth, type Role as AnyRole, type User } from "../lib/auth";
 import { cn, timeAgo, useApi } from "../lib/utils";
@@ -47,9 +47,56 @@ export function TempPassword({ email, password, onClose }: { email: string; pass
   );
 }
 
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Name, email and role of an existing user. Admins can't change their own role here. */
+function EditUserModal({ u, self, onClose, onSaved }: { u: User; self: boolean; onClose: () => void; onSaved: () => void }) {
+  const [f, setF] = useState({ name: u.name, email: u.email, role: u.role as Role });
+  const [touched, setTouched] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const errs = { name: !f.name.trim() ? "Name is required" : null, email: !EMAIL.test(f.email.trim()) ? "Enter a valid email" : null };
+  const changed = f.name.trim() !== u.name || f.email.trim().toLowerCase() !== u.email || f.role !== u.role;
+  const save = async () => {
+    setTouched(true);
+    if (errs.name || errs.email || !changed) return;
+    setSaving(true);
+    try {
+      const body: Record<string, string> = {};
+      if (f.name.trim() !== u.name) body.name = f.name.trim();
+      if (f.email.trim().toLowerCase() !== u.email) body.email = f.email.trim();
+      if (f.role !== u.role) body.role = f.role;
+      await api.patch(`/admin/users/${u.id}`, body);
+      toast.success(`${f.name.trim()} updated`, { description: body.email ? "They now sign in with the new email." : undefined });
+      onSaved();
+      onClose();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <Modal open onClose={onClose} title="Edit user" description="Changes apply the next time they load a page."
+      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button loading={saving} disabled={!changed} onClick={save}>Save changes</Button></>}>
+      <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); save(); }}>
+        <Field label="Full name" htmlFor="e-name" error={touched ? errs.name : null}><Input id="e-name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} invalid={touched && !!errs.name} /></Field>
+        <Field label="Work email" htmlFor="e-email" error={touched ? errs.email : null} hint="This is their sign-in email.">
+          <Input id="e-email" type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} invalid={touched && !!errs.email} />
+        </Field>
+        <Field label="Role" htmlFor="e-role" hint={self ? "You can't change your own role." : ROLE_INFO[f.role].desc}>
+          {self ? <p className="text-sm font-medium">{ROLE_INFO[f.role].label}</p>
+            : <Segmented value={f.role} onChange={(v) => setF({ ...f, role: v })} options={ROLES.map((r) => ({ value: r, label: ROLE_INFO[r].label }))} />}
+        </Field>
+        <button type="submit" className="hidden" />
+      </form>
+    </Modal>
+  );
+}
+
 function RowMenu({ u, me, onChanged, onTemp }: { u: User; me: User; onChanged: () => void; onTemp: (email: string, pw: string) => void }) {
   const [open, setOpen] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
+  const [editing, setEditing] = useState(false);
   const self = u.id === me.id;
   const run = async (fn: () => Promise<unknown>, ok: string) => {
     setOpen(false);
@@ -69,6 +116,9 @@ function RowMenu({ u, me, onChanged, onTemp }: { u: User; me: User; onChanged: (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           <div className="absolute right-0 z-20 mt-1 w-56 rounded-2xl bg-white p-1.5 shadow-pop ring-1 ring-black/5 dark:bg-slate-900 dark:ring-white/10">
+            <button className={item} onClick={() => { setOpen(false); setEditing(true); }}>
+              <Pencil className="h-4 w-4" /> Edit details
+            </button>
             {ROLES.filter((r) => r !== u.role).map((r) => (
               <button key={r} className={item} disabled={self} onClick={() => run(() => api.patch(`/admin/users/${u.id}`, { role: r }), `${u.name} is now ${r === "estimator" ? "an estimator" : r === "admin" ? "an admin" : "an architect"}`)}>
                 {r === "admin" ? <ShieldCheck className="h-4 w-4" /> : <UserRound className="h-4 w-4" />} Make {ROLE_INFO[r].label.toLowerCase()}
@@ -91,6 +141,7 @@ function RowMenu({ u, me, onChanged, onTemp }: { u: User; me: User; onChanged: (
         footer={<><Button variant="secondary" onClick={() => setConfirmDel(false)}>Cancel</Button><Button variant="danger" onClick={() => { setConfirmDel(false); run(() => api.del(`/admin/users/${u.id}`), "User deleted"); }}>Delete user</Button></>}>
         <p className="text-sm text-slate-600 dark:text-slate-400">Prefer <b>Deactivate</b> if they may come back. It keeps their history.</p>
       </Modal>
+      {editing && <EditUserModal u={u} self={self} onClose={() => setEditing(false)} onSaved={onChanged} />}
     </div>
   );
 }

@@ -212,6 +212,29 @@ def test_hierarchy_superadmin_company_admin_employees():
         pass
 
 
+def test_edit_and_delete_users():
+    with client() as admin:
+        uid_ = admin.post("/api/v1/admin/users", json={"name": "Temp", "email": "temp@demo.in", "role": "estimator"}).json()["user"]["id"]
+        r = admin.patch(f"/api/v1/admin/users/{uid_}", json={"name": "Temp Two", "email": "Temp2@Demo.in", "role": "architect"})
+        assert r.status_code == 200, r.text
+        assert r.json()["user"]["email"] == "temp2@demo.in" and r.json()["user"]["role"] == "architect"
+        assert admin.patch(f"/api/v1/admin/users/{uid_}", json={"email": "estimator@vitrostack.local"}).status_code == 400
+        assert admin.patch(f"/api/v1/admin/users/{uid_}", json={"email": "not-an-email"}).status_code == 400
+        assert admin.delete(f"/api/v1/admin/users/{uid_}").status_code == 204
+
+    with client("superadmin@vitrostack.local", "superadmin123") as su:
+        c = su.post("/api/v1/platform/companies", json={"name": "EditCo", "admin_name": "A1", "admin_email": "a1@editco.in"}).json()["company"]
+        first = c["admins"][0]["id"]
+        assert su.delete(f"/api/v1/platform/admins/{first}").status_code == 400  # only admin
+        second = su.post(f"/api/v1/platform/companies/{c['id']}/admins", json={"name": "A2", "email": "a2@editco.in"}).json()["company"]
+        a2 = next(a["id"] for a in second["admins"] if a["email"] == "a2@editco.in")
+        r = su.patch(f"/api/v1/platform/admins/{a2}", json={"name": "A Two", "email": "a.two@editco.in"})
+        assert r.status_code == 200 and any(a["email"] == "a.two@editco.in" and a["name"] == "A Two" for a in r.json()["admins"])
+        assert su.patch(f"/api/v1/platform/companies/{c['id']}", json={"name": "EditCo Renamed"}).json()["name"] == "EditCo Renamed"
+        r = su.delete(f"/api/v1/platform/admins/{first}")
+        assert r.status_code == 200 and [a["id"] for a in r.json()["admins"]] == [a2]
+
+
 def test_estimator_can_work_but_not_admin():
     with client("estimator@vitrostack.local", "estimator123") as c:
         assert c.get("/api/v1/admin/users").status_code == 403

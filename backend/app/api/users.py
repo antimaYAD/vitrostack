@@ -23,6 +23,7 @@ class UserIn(BaseModel):
 
 class UserPatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
+    email: str | None = Field(default=None, min_length=3, max_length=200)
     role: str | None = None
     active: bool | None = None
 
@@ -39,6 +40,17 @@ def _active_admins(db: Session, org: str) -> int:
         User.organization_id == org, User.role == "admin", User.active.is_(True))) or 0
 
 
+def checked_email(db: Session, email: str, exclude_id: str | None = None) -> str:
+    """Normalise an email and make sure no other account uses it (emails are unique across all companies)."""
+    email = email.strip().lower()
+    if "@" not in email or "." not in email.split("@")[-1]:
+        raise ValueError("Enter a valid email address")
+    other = db.scalar(select(User).where(func.lower(User.email) == email))
+    if other and other.id != exclude_id:
+        raise ValueError("A user with this email already exists")
+    return email
+
+
 def _temp_password() -> str:
     return f"Vs-{secrets.token_urlsafe(6)}{secrets.randbelow(90) + 10}"
 
@@ -51,13 +63,9 @@ def list_users(db: Session = Depends(get_db), admin: User = Depends(auth.require
 
 @router.post("", status_code=201)
 def create_user(body: UserIn, db: Session = Depends(get_db), admin: User = Depends(auth.require_admin)):
-    email = body.email.strip().lower()
-    if "@" not in email or "." not in email.split("@")[-1]:
-        raise ValueError("Enter a valid email address")
+    email = checked_email(db, body.email)
     if body.role not in auth.ROLES:
         raise ValueError("Role must be admin, estimator or architect")
-    if db.scalar(select(User).where(func.lower(User.email) == email)):
-        raise ValueError("A user with this email already exists")
     pw = body.password or _temp_password()
     auth.check_password_policy(pw)
     u = User(organization_id=admin.organization_id, name=body.name.strip(), email=email,
@@ -81,6 +89,8 @@ def update_user(uid: str, body: UserPatch, db: Session = Depends(get_db), admin:
         u.role = body.role
     if body.name is not None:
         u.name = body.name.strip()
+    if body.email is not None:
+        u.email = checked_email(db, body.email, exclude_id=u.id)
     if body.active is not None:
         u.active = body.active
     db.commit()

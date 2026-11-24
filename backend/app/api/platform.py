@@ -11,8 +11,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .. import auth
-from ..db import Organization, Project, User, get_db, uid
-from .users import _temp_password
+from ..db import AgentSession, Organization, Project, User, get_db, uid
+from .users import _temp_password, checked_email
 
 router = APIRouter(prefix="/api/v1/platform", dependencies=[Depends(auth.require_superadmin)])
 
@@ -33,18 +33,14 @@ class AdminIn(BaseModel):
     email: str = Field(min_length=3, max_length=200)
 
 
-def _clean_email(db: Session, email: str) -> str:
-    email = email.strip().lower()
-    if "@" not in email or "." not in email.split("@")[-1]:
-        raise ValueError("Enter a valid email address")
-    if db.scalar(select(User).where(func.lower(User.email) == email)):
-        raise ValueError("A user with this email already exists")
-    return email
+class AdminPatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    email: str | None = Field(default=None, min_length=3, max_length=200)
 
 
 def _new_admin(db: Session, org: str, name: str, email: str) -> tuple[User, str]:
     pw = _temp_password()
-    u = User(organization_id=org, name=name.strip(), email=_clean_email(db, email),
+    u = User(organization_id=org, name=name.strip(), email=checked_email(db, email),
              password_hash=auth.hash_password(pw), role="admin", must_change_password=True)
     db.add(u)
     return u, pw
@@ -113,11 +109,42 @@ def add_admin(cid: str, body: AdminIn, db: Session = Depends(get_db)):
     return {"company": _company(db, o), "admin_email": admin.email, "temporary_password": pw}
 
 
-@router.post("/admins/{user_id}/reset-password")
-def reset_admin_password(user_id: str, db: Session = Depends(get_db)):
+def _admin(db: Session, user_id: str) -> User:
     u = db.get(User, user_id)
     if not u or u.role != "admin":
         raise HTTPException(404, "Company admin not found")
+    return u
+
+
+@router.patch("/admins/{user_id}")
+def update_admin(user_id: str, body: AdminPatch, db: Session = Depends(get_db)):
+    u = _admin(db, user_id)
+    if body.name is not None:
+        u.name = body.name.strip()
+    if body.email is not None:
+        u.email = checked_email(db, body.email, exclude_id=u.id)
+    db.commit()
+    return _company(db, _get(db, u.organization_id))
+
+
+@router.delete("/admins/{user_id}")
+def delete_admin(user_id: str, db: Session = Depends(get_db)):
+    u = _admin(db, user_id)
+    others = db.scalar(select(func.count()).select_from(User).where(
+        User.organization_id == u.organization_id, User.role == "admin", User.active.is_(True), User.id != u.id)) or 0
+    if not others:
+        raise ValueError("This is the company's only active admin. Add another admin first.")
+    for s in db.scalars(select(AgentSession).where(AgentSession.user_id == u.id)).all():
+        s.user_id = None
+    org = u.organization_id
+    db.delete(u)
+    db.commit()
+    return _company(db, _get(db, org))
+
+
+@router.post("/admins/{user_id}/reset-password")
+def reset_admin_password(user_id: str, db: Session = Depends(get_db)):
+    u = _admin(db, user_id)
     pw = _temp_password()
     u.password_hash = auth.hash_password(pw)
     u.must_change_password = True
